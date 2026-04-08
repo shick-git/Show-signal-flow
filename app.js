@@ -3006,6 +3006,63 @@ const _NET_PROFILES_VLAN = [
   }
 ];
 
+// ══════════════════════════════════════════════════════════
+// PORT REFERENCE — для отображения в диалоге и справке
+// Источники: MA Lighting help, Audinate, NDI docs, TD docs
+// ══════════════════════════════════════════════════════════
+const _PORT_REFERENCE = [
+  // ─── GrandMA2 ───
+  { sys:'GrandMA2', proto:'MA-Net2 (сессия/ноды)', port:'ETH0 · 192.168.0.x/24', tp:'', note:'ETH1 отдельно для ArtNet 2.x.x.x' },
+  { sys:'GrandMA2', proto:'Art-Net (DMX out)', port:'UDP 6454', tp:'UDP', note:'Только адаптер с 2.x.x.x — жёсткое ограничение' },
+  { sys:'GrandMA2', proto:'sACN/E1.31', port:'UDP 5568', tp:'UDP', note:'На ETH0, multicast 239.255.0.U' },
+  { sys:'GrandMA2', proto:'Telnet (управление)', port:'TCP 30000', tp:'TCP', note:'⚠ НЕ порт 23! Login "user pass"·MA2 НЕТ native OSC' },
+  { sys:'GrandMA2', proto:'System Monitor (read-only)', port:'TCP 30001', tp:'TCP', note:'Только чтение' },
+  // ─── GrandMA3 ───
+  { sys:'GrandMA3', proto:'MA-Net3 (сессия)', port:'UDP 30020 Multicast', tp:'UDP MC', note:'236.4.1.x – 236.4.1.4 · ⚠ 192.168.33.x зарезервирован MA3!' },
+  { sys:'GrandMA3', proto:'MA Worldserver', port:'TCP 30021', tp:'TCP', note:'' },
+  { sys:'GrandMA3', proto:'MA-Net3 TCP backup', port:'TCP 30022+', tp:'TCP', note:'' },
+  { sys:'GrandMA3', proto:'Art-Net (DMX out)', port:'UDP 6454', tp:'UDP', note:'Broadcast/Unicast/Auto — нужен статус Master' },
+  { sys:'GrandMA3', proto:'sACN/E1.31 (DMX out)', port:'UDP 5568', tp:'UDP', note:'Multicast 239.255.x.y по номеру вселенной' },
+  { sys:'GrandMA3', proto:'OSC (нативный!)', port:'UDP/TCP 8000', tp:'UDP', note:'Адрес: /cmd,s,"Go+ Exec 201" · настр.: In&Out→OSC' },
+  { sys:'GrandMA3', proto:'Web Remote HTTP', port:'TCP 80', tp:'TCP', note:'' },
+  { sys:'GrandMA3', proto:'Web Remote WebSocket', port:'TCP 8080', tp:'TCP', note:'' },
+  { sys:'GrandMA3', proto:'SFTP', port:'TCP 22', tp:'TCP', note:'' },
+  { sys:'GrandMA3', proto:'PSN/PosiStageNet', port:'UDP 65565', tp:'UDP MC', note:'Multicast 236.10.10.10' },
+  { sys:'GrandMA3', proto:'MVR-xchange', port:'TCP 42424', tp:'TCP', note:'' },
+  // ─── TouchDesigner ───
+  { sys:'TouchDesigner', proto:'OSC In CHOP', port:'Настраивается', tp:'UDP', note:'Нет дефолта — ставь явно (8001/9000). Win Firewall часто блокирует молча!' },
+  { sys:'TouchDesigner', proto:'OSC Out CHOP', port:'→ MA3: 8000', tp:'UDP', note:'Local Address: укажи NIC явно при нескольких адаптерах' },
+  { sys:'TouchDesigner', proto:'Art-Net DMX Out CHOP', port:'UDP 6454 · 255.255.255.255', tp:'UDP', note:'Для MA2: NIC = 2.x.x.x/255.0.0.0 · loopback: KM-Test adapter' },
+  { sys:'TouchDesigner', proto:'NDI (TOP)', port:'5353 mDNS · 5959 discovery · 5960+ video', tp:'TCP/UDP', note:'IGMP snooping нужен! Jumbo Frames MTU 9000 рекомендован' },
+  { sys:'TouchDesigner', proto:'Dante (DVS)', port:'Отдельный NIC', tp:'UDP', note:'DVS = отдельный ASIO-адаптер. Не смешивать с NDI NIC' },
+  // ─── Общие протоколы ───
+  { sys:'Art-Net', proto:'Art-Net (все)', port:'UDP 6454', tp:'UDP', note:'2.x.x.x или 10.x.x.x / 255.0.0.0 · без шлюза' },
+  { sys:'sACN/E1.31', proto:'Streaming ACN', port:'UDP 5568', tp:'UDP', note:'Multicast 239.255.0.U · IGMP snooping рекомендован' },
+  { sys:'Dante/AES67', proto:'Audio (unicast)', port:'UDP разные', tp:'UDP', note:'QoS DSCP EF(46) для аудио · CS7(56) для PTP' },
+  { sys:'Dante/AES67', proto:'PTP (IEEE 1588)', port:'UDP 319–320 Multicast', tp:'UDP MC', note:'Dante Redundant: 172.31.x.x/16 (Audinate auto-fallback)' },
+  { sys:'NDI', proto:'mDNS discovery', port:'UDP 5353', tp:'UDP MC', note:'Не пересекает VLAN! Нужен NDI Discovery Server' },
+  { sys:'NDI', proto:'Discovery Server', port:'TCP 5959', tp:'TCP', note:'Для cross-VLAN NDI' },
+  { sys:'NDI', proto:'Video streams', port:'TCP/UDP 5960+', tp:'TCP', note:'~125-250 Мбит/с на поток · 10G рекомендован' },
+  { sys:'QLab', proto:'OSC receive', port:'UDP 53000', tp:'UDP', note:'Send: 53001 · QLab 5 также поддерживает TCP' },
+  { sys:'QLab', proto:'OSC send', port:'UDP 53001', tp:'UDP', note:'' },
+  { sys:'rtpMIDI', proto:'Apple/rtpMIDI', port:'UDP 5004/5005', tp:'UDP', note:'Bonjour mDNS discovery — только в одной подсети' },
+  { sys:'PSN', proto:'PosiStageNet (трекинг)', port:'UDP 65565', tp:'UDP MC', note:'Multicast 236.10.10.10' },
+];
+
+// Конфликты и предупреждения, выводимые в диалоге
+const _NET_CONFLICTS = [
+  { icon:'⚠', text:'GrandMA2 не имеет OSC. Используйте Telnet TCP:30000 или ArtNet DMX Remote для управления из TouchDesigner.' },
+  { icon:'⚠', text:'GrandMA2 выводит ArtNet только с адаптера 2.x.x.x. Для MA-Net2 нужен отдельный NIC на 192.168.0.x.' },
+  { icon:'⛔', text:'192.168.33.x зарезервирован GrandMA3 — никогда не назначайте этот диапазон устройствам на шоу-сети!' },
+  { icon:'⚠', text:'ArtNet broadcast (x.255.255.255) + NDI на одном VLAN = конфликт полосы. Разносите на разные VLAN или переключайте ArtNet в Unicast.' },
+  { icon:'⚠', text:'NDI mDNS не пересекает VLAN. Для cross-VLAN NDI нужен NDI Discovery Server (TCP 5959).' },
+  { icon:'⚠', text:'Dante PTP + NDI multicast без IGMP Snooping → джиттер Dante и выпадения аудио. Включите IGMP Snooping на всех коммутаторах.' },
+  { icon:'ℹ', text:'TouchDesigner с несколькими NIC: указывайте Local Address явно в каждом OSC/ArtNet CHOP, иначе Windows выберет адаптер сам.' },
+  { icon:'ℹ', text:'Windows Firewall молча блокирует UDP-порты TD. Создайте inbound rule или отключите Firewall на шоу-машинах.' },
+  { icon:'ℹ', text:'GrandMA3 OSC: /cmd,s,"Go+ Exec 201" — любая командная строка MA3. Настройка: In & Out → OSC, порт 8000, включить Echo для отладки.' },
+  { icon:'ℹ', text:'Dante Redundant (резервная сеть): 172.31.x.x/16 — Audinate auto-fallback. Первичная и резервная сети никогда не маршрутизируются друг в друга.' },
+];
+
 function _activeProfiles(){
   return window._anNetMode === 'vlan' ? _NET_PROFILES_VLAN : _NET_PROFILES;
 }
@@ -3064,7 +3121,7 @@ function _analyzeNet(){
 
   nodes.forEach(n => {
     const profile = _detectNodeProfile(n);
-    const hasIp   = !!(n.netIP && n.netIP.trim());
+    const hasIp   = !!(n.ip && n.ip.trim());
     if(hasIp){
       skip.push({node: n, profile});
       return;
@@ -3138,6 +3195,30 @@ function showAutoNetDialog(){
     ? `<div class="an-skip-note">⚠ ${skip.length} устр. уже имеют IP и будут <b>пропущены</b>. Используй «Переназначить всё» для полного сброса.</div>`
     : '';
 
+  // Конфликты
+  const conflictsHTML = `
+    <details class="an-details" style="margin-top:10px;">
+      <summary class="an-det-sum">⚠ Конфликты и важные замечания (${_NET_CONFLICTS.length})</summary>
+      <div class="an-conflicts">${_NET_CONFLICTS.map(c=>
+        `<div class="an-conflict"><span class="an-ci">${c.icon}</span>${c.text}</div>`
+      ).join('')}</div>
+    </details>`;
+
+  // Таблица портов (свёрнута по умолчанию)
+  const portRows = _PORT_REFERENCE.map(r=>
+    `<tr><td>${r.sys}</td><td>${r.proto}</td><td style="font-family:monospace;white-space:nowrap;">${r.port}</td><td style="color:#555;">${r.note}</td></tr>`
+  ).join('');
+  const portsHTML = `
+    <details class="an-details">
+      <summary class="an-det-sum">📋 Справочник портов и протоколов (${_PORT_REFERENCE.length} записей)</summary>
+      <div style="overflow-x:auto;margin-top:6px;">
+        <table class="an-port-table">
+          <thead><tr><th>Система</th><th>Протокол</th><th>Порт</th><th>Примечание</th></tr></thead>
+          <tbody>${portRows}</tbody>
+        </table>
+      </div>
+    </details>`;
+
   document.getElementById('autonet-popup').style.display = 'flex';
   document.getElementById('autonet-body').innerHTML = `
     <div class="an-summary">
@@ -3145,7 +3226,9 @@ function showAutoNetDialog(){
       Пропущено (уже настроено): <b>${skip.length}</b>
     </div>
     ${skipNote}
-    <div class="an-sections">${sectionsHTML}</div>`;
+    <div class="an-sections">${sectionsHTML}</div>
+    ${conflictsHTML}
+    ${portsHTML}`;
 
   // сохраняем план для кнопок
   window._autoNetPlan = {plan, skip};
@@ -3157,25 +3240,21 @@ function applyAutoNet(overrideAll){
 
   let toApply = [...plan];
   if(overrideAll){
-    // переназначаем и уже настроенные
-    const {plan: fullPlan} = (() => {
-      const counters = {};
-      _NET_PROFILES.forEach(p => counters[p.id] = 0);
-      const fp = nodes.map(n => {
-        const profile = _detectNodeProfile(n);
-        const idx = counters[profile.id]++;
-        return {node: n, profile, ip: _ipFromProfile(profile, idx), mask: profile.mask, gw: profile.gw};
-      });
-      return {plan: fp};
-    })();
-    toApply = fullPlan;
+    // переназначаем все ноды включая уже настроенные
+    const counters = {};
+    _activeProfiles().forEach(p => counters[p.id] = 0);
+    toApply = nodes.map(n => {
+      const profile = _detectNodeProfile(n);
+      const idx = counters[profile.id]++;
+      return {node: n, profile, ip: _ipFromProfile(profile, idx), mask: profile.mask, gw: profile.gw};
+    });
   }
 
   snapshot('Авто-сеть: назначить IP');
   toApply.forEach(item => {
-    item.node.netIP   = item.ip;
-    item.node.netMask = item.mask;
-    item.node.netGW   = item.gw;
+    item.node.ip   = item.ip;
+    item.node.mask = item.mask;
+    item.node.gw   = item.gw;
   });
   closeAutoNetDialog();
   renderNetPanel();
@@ -3566,16 +3645,16 @@ function exportNetPatch(){
 
   // Collect devices with at least an IP
   const devs = nodes
-    .filter(n => n.netIP || n.netGW)
+    .filter(n => n.ip || n.gw)
     .map(n => {
       const z = zones.find(z => nodeInZone(n, z));
       return {
         name: n.title || n.id,
         sub:  n.sub1  || '',
         zone: z ? z.title||z.id : '',
-        ip:   n.netIP   || '',
-        mask: n.netMask || '',
-        gw:   n.netGW   || ''
+        ip:   n.ip   || '',
+        mask: n.mask || '',
+        gw:   n.gw   || ''
       };
     });
 

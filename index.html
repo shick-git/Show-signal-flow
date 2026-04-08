@@ -477,6 +477,21 @@ body.dark-theme .net-table th{background:#222;border-bottom-color:#333;color:#55
 .an-btn-all:hover{background:#303060;color:#fff;}
 .an-btn-cancel{background:none;color:#666;border:none;font-size:12px;cursor:pointer;margin-left:auto;}
 .an-btn-cancel:hover{color:#aaa;}
+.an-details{margin-top:8px;border:1px solid #1e1e32;border-radius:6px;overflow:hidden;}
+.an-det-sum{padding:8px 12px;font-size:11px;color:#777;cursor:pointer;list-style:none;
+  background:#111120;user-select:none;}
+.an-det-sum:hover{color:#aaa;}
+.an-det-sum::-webkit-details-marker{display:none;}
+.an-conflicts{padding:8px 12px;display:flex;flex-direction:column;gap:5px;}
+.an-conflict{font-size:11px;color:#aaa;line-height:1.4;display:flex;gap:6px;align-items:flex-start;}
+.an-ci{flex-shrink:0;font-size:13px;}
+.an-port-table{width:100%;border-collapse:collapse;font-size:10px;}
+.an-port-table th{background:#111120;color:#666;padding:4px 8px;text-align:left;
+  font-weight:600;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #222;}
+.an-port-table td{padding:3px 8px;border-bottom:1px solid #0a0a18;color:#999;vertical-align:top;}
+.an-port-table tr:hover td{background:#ffffff06;}
+.an-port-table td:first-child{color:#ccc;font-weight:500;white-space:nowrap;}
+.an-port-table td:nth-child(2){color:#aaa;}
 
 /* ── HELP POPUP ── */
 .help-section{font-size:10px;font-weight:bold;color:#555;text-transform:uppercase;
@@ -1602,6 +1617,39 @@ body.dark-theme #qed .qed-props{background:#333;color:#ccc;}
     <div class="help-row">Экспорт SVG<span>Векторный файл (масштабируется для печати)</span></div>
     <div class="help-row">Экспорт HTML<span>Интерактивный просмотрщик без установки</span></div>
     <div class="help-row">Таблица сигналов<span>Список всех связей схемы</span></div>
+
+    <div class="help-section">GrandMA2 — сеть и интеграция</div>
+    <div class="help-row">ETH0<span>192.168.0.x/24 — MA-Net2, sACN (сессия, ноды, бэкап)</span></div>
+    <div class="help-row">ETH1<span>2.x.x.x/255.0.0.0 — ArtNet (жёсткое ограничение MA2)</span></div>
+    <div class="help-row">OSC<span>⛔ MA2 НЕ поддерживает OSC нативно</span></div>
+    <div class="help-row">Telnet TCP 30000<span>Управление командной строкой: "Login user pass" → "Go Exec 201"</span></div>
+    <div class="help-row">TD → MA2<span>Art-Net DMX Out CHOP (2.x.x.x) → DMX Remote в MA2</span></div>
+    <div class="help-row">Loopback (onPC + TD)<span>KM-Test Loopback Adapter → 2.0.0.1/255.0.0.0</span></div>
+
+    <div class="help-section">GrandMA3 — сеть и OSC</div>
+    <div class="help-row">MA-Net3<span>UDP Multicast 30020 · multicast 236.4.1.x</span></div>
+    <div class="help-row">OSC (нативный)<span>UDP порт 8000 · адрес /cmd · строка-команда как аргумент</span></div>
+    <div class="help-row">OSC пример<span>/cmd,s,"Go+ Exec 402" — следующий шаг на экзекьюторе 402</span></div>
+    <div class="help-row">OSC настройка<span>In & Out → OSC → включить Receive Command, Echo для отладки</span></div>
+    <div class="help-row">⛔ Запрещено<span>192.168.33.x — зарезервировано MA3, нельзя использовать!</span></div>
+    <div class="help-row">TD → MA3<span>OSC Out CHOP → MA3 IP:8000 · MA3 OSC Out → TD IP:порт</span></div>
+    <div class="help-row">Резерв MA3<span>MA3 Web Remote: HTTP 80 · WebSocket 8080 · SFTP 22</span></div>
+
+    <div class="help-section">TouchDesigner — сетевые CHOPs</div>
+    <div class="help-row">OSC In CHOP<span>Порт задаётся вручную (нет дефолта). Типично 8001, 9000</span></div>
+    <div class="help-row">OSC Out CHOP<span>→ MA3: IP консоли, порт 8000 · Local Address: укажи NIC явно!</span></div>
+    <div class="help-row">DMX Out CHOP (ArtNet)<span>UDP 6454 · NIC должен быть 2.x.x.x при работе с MA2</span></div>
+    <div class="help-row">NDI TOP<span>mDNS 5353 · Discovery 5959 · Video 5960+ · IGMP Snooping нужен</span></div>
+    <div class="help-row">Dante Virtual Soundcard<span>Отдельный NIC для Dante, не смешивать с NDI</span></div>
+    <div class="help-row">Несколько NIC<span>Всегда указывай Local Address в каждом CHOP!</span></div>
+    <div class="help-row">Windows Firewall<span>Молча блокирует UDP — создай inbound rule для портов TD</span></div>
+    <div class="help-row">Оптимизация NIC<span>Отключить Large Send Offload и Interrupt Moderation на шоу-NIC</span></div>
+
+    <div class="help-section">Конфликты — что нельзя смешивать</div>
+    <div class="help-row">ArtNet broadcast + NDI<span>Разные VLAN или ArtNet → Unicast режим</span></div>
+    <div class="help-row">NDI через несколько VLAN<span>Нужен NDI Discovery Server (TCP 5959)</span></div>
+    <div class="help-row">Dante + NDI без IGMP<span>Флуд multicast → джиттер Dante. Включить IGMP Snooping!</span></div>
+    <div class="help-row">IPv6 на шоу-NIC<span>Отключить — создаёт лишний multicast и мешает mDNS</span></div>
 
     <div class="help-section">Файл и прочее</div>
     <div class="help-row"><kbd>Ctrl+S</kbd><span>Сохранить проект (.ssfp)</span></div>
