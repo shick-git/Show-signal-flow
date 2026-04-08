@@ -54,15 +54,11 @@
     },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] }
+        { "target": "zip", "arch": ["x64", "arm64"] }
       ],
       "icon": "icon.png",
       "category": "public.app-category.utilities",
-      "artifactName": "ShowSignalFlow-v3.3.1-mac-${arch}.dmg"
-    },
-    "dmg": {
-      "title": "Show Signal Flow",
-      "window": { "width": 540, "height": 380 }
+      "artifactName": "ShowSignalFlow-v3.3.1-mac-${arch}.zip"
     },
     "linux": {
       "target": [
