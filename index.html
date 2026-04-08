@@ -1474,45 +1474,89 @@ body.dark-theme #qed .qed-props{background:#333;color:#ccc;}
 </div>
 
 <!-- Help popup -->
-<div class="popup" id="help-popup" style="min-width:400px;max-width:460px;">
+<div class="popup" id="help-popup" style="min-width:480px;max-width:540px;">
   <div class="popup-header" onmousedown="startDragPopup(event,'help-popup')">
-    ❓ Справка — горячие клавиши
+    ❓ Справка
     <button class="close-btn" onclick="cp('help-popup')">✕</button>
   </div>
-  <div class="popup-body">
+  <div class="popup-body" style="max-height:78vh;overflow-y:auto;padding-right:4px;">
+
     <div class="help-section">Навигация холста</div>
-    <div class="help-row"><kbd>Space</kbd>+drag / СКМ<span>Панорама</span></div>
+    <div class="help-row"><kbd>Space</kbd>+drag &nbsp;/&nbsp; СКМ<span>Панорама</span></div>
     <div class="help-row"><kbd>Ctrl</kbd>+колесо<span>Зум</span></div>
     <div class="help-row"><kbd>Ctrl+0</kbd><span>Показать всё (fit)</span></div>
+    <div class="help-row"><kbd>F11</kbd><span>Полный экран</span></div>
+
+    <div class="help-section">Ноды — редактирование</div>
+    <div class="help-row">Двойной клик по ноде<span>Быстрое редактирование (имя / строки 1–2)</span></div>
+    <div class="help-row">ПКМ по ноде → Свойства<span>Полный редактор (тип, цвет, порты, IP…)</span></div>
+    <div class="help-row">ПКМ по ноде → Переименовать<span>Быстрое имя без открытия редактора</span></div>
+    <div class="help-row">ПКМ по ноде → Дублировать<span>Копия ноды рядом</span></div>
+    <div class="help-row">Drag по ноде<span>Переместить</span></div>
+    <div class="help-row">Drag ноды на связь<span>Вставить ноду в разрыв</span></div>
+    <div class="help-row">Drag ноды к TC Bus<span>Подключить к шине Timecode</span></div>
+    <div class="help-row">Drag ноды к TC-линии<span>Вставить в цепочку TC</span></div>
 
     <div class="help-section">Выделение</div>
     <div class="help-row"><kbd>V</kbd><span>Режим выбора</span></div>
     <div class="help-row">Обвести мышкой<span>Выделить несколько нод</span></div>
-    <div class="help-row"><kbd>Shift/Ctrl</kbd>+клик<span>Добавить к выделению</span></div>
+    <div class="help-row"><kbd>Shift</kbd> / <kbd>Ctrl</kbd>+клик<span>Добавить к выделению</span></div>
     <div class="help-row"><kbd>Ctrl+A</kbd><span>Выделить всё</span></div>
-    <div class="help-row"><kbd>Del / Backspace</kbd><span>Удалить выбранное</span></div>
+    <div class="help-row"><kbd>Del</kbd> / <kbd>Backspace</kbd><span>Удалить выбранное</span></div>
     <div class="help-row"><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd><span>Копировать / Вставить</span></div>
 
     <div class="help-section">Связи</div>
-    <div class="help-row"><kbd>E</kbd><span>Режим связей</span></div>
-    <div class="help-row">Клик порта → клик порта<span>Создать связь</span></div>
-    <div class="help-row"><kbd>Esc</kbd><span>Отмена режима / операции</span></div>
+    <div class="help-row"><kbd>E</kbd><span>Режим связей (подсветка источника)</span></div>
+    <div class="help-row">Клик ноды → клик ноды<span>Создать связь</span></div>
+    <div class="help-row">Двойной клик по связи<span>Редактировать метку</span></div>
+    <div class="help-row">ПКМ по связи<span>Метка / Точки излома / Удалить</span></div>
+    <div class="help-row">Drag точки излома<span>Настроить маршрут связи вручную</span></div>
+    <div class="help-row"><kbd>Esc</kbd><span>Отмена режима / текущей операции</span></div>
 
-    <div class="help-section">Ноды</div>
-    <div class="help-row">Двойной клик<span>Редактировать ноду или связь</span></div>
-    <div class="help-row">Drag на связь<span>Вставить ноду в разрыв</span></div>
-    <div class="help-row">Drag к TC Bus<span>Подключить к Timecode</span></div>
-    <div class="help-row">Drag к TC-линии<span>Вставить в цепочку TC</span></div>
+    <div class="help-section">Зоны</div>
+    <div class="help-row">ПКМ по зоне<span>Контекстное меню: редактировать, свернуть, удалить</span></div>
+    <div class="help-row">Кнопка ▸ в углу зоны<span>Свернуть / развернуть зону</span></div>
+    <div class="help-row">Свёрнутая зона<span>Ноды скрыты; TC-линии и связи ведут к полосе зоны</span></div>
+    <div class="help-row">Drag угла зоны<span>Изменить размер</span></div>
+    <div class="help-row">ПКМ по холсту<span>Добавить ноду / зону / заметку, вставить</span></div>
 
     <div class="help-section">История</div>
     <div class="help-row"><kbd>Ctrl+Z</kbd><span>Отменить</span></div>
     <div class="help-row"><kbd>Ctrl+Y</kbd> / <kbd>Ctrl+Shift+Z</kbd><span>Повторить</span></div>
+    <div class="help-row">Кнопка 🕐<span>Панель истории — кликни по шагу для возврата</span></div>
 
-    <div class="help-section">Файл</div>
+    <div class="help-section">Панель «Сеть»</div>
+    <div class="help-row">Кнопка «Сеть» на панели<span>Открыть сетевую таблицу</span></div>
+    <div class="help-row">Клик по ячейке IP / Маска / Шлюз<span>Редактировать; Enter = сохранить</span></div>
+    <div class="help-row">Красная рамка ячейки<span>Некорректный адрес или конфликт подсети</span></div>
+    <div class="help-row">Бейдж ошибок в заголовке<span>Общее число некорректных IP в схеме</span></div>
+    <div class="help-row">Поиск + фильтр зон<span>Фильтрация строк таблицы в реальном времени</span></div>
+    <div class="help-row">Кнопка 🌐 Топология<span>SVG-граф связей между устройствами</span></div>
+    <div class="help-row">Экспорт → HTML<span>Таблица сети как веб-страница</span></div>
+    <div class="help-row">Экспорт → CSV<span>Таблица для Excel (с BOM)</span></div>
+    <div class="help-row">Экспорт → 🔧 Патч сети .hta<span>Windows-приложение для автонастройки IP</span></div>
+
+    <div class="help-section">Патч сети (.hta) — Windows</div>
+    <div class="help-row">Запуск<span>Двойной клик по файлу → открывается окно</span></div>
+    <div class="help-row">Права Администратора<span>ПКМ → «Запуск от имени администратора»</span></div>
+    <div class="help-row">Выбор адаптера<span>Список Up-адаптеров загружается автоматически</span></div>
+    <div class="help-row">Кнопка «Применить»<span>Устанавливает IP/маску/шлюз на выбранном адаптере</span></div>
+    <div class="help-row">Кнопка «Пинг»<span>Test-Connection до IP устройства</span></div>
+    <div class="help-row">«Применить всё»<span>Пакетное применение всех устройств (с подтверждением)</span></div>
+    <div class="help-row">Журнал<span>Лог всех операций: успех / ошибка / текущий IP</span></div>
+
+    <div class="help-section">Экспорт схемы</div>
+    <div class="help-row">Экспорт PNG<span>Снимок текущего вида</span></div>
+    <div class="help-row">Экспорт SVG<span>Векторный файл (масштабируется для печати)</span></div>
+    <div class="help-row">Экспорт HTML<span>Интерактивный просмотрщик без установки</span></div>
+    <div class="help-row">Таблица сигналов<span>Список всех связей схемы</span></div>
+
+    <div class="help-section">Файл и прочее</div>
     <div class="help-row"><kbd>Ctrl+S</kbd><span>Сохранить проект (.ssfp)</span></div>
     <div class="help-row"><kbd>Ctrl+O</kbd><span>Открыть проект</span></div>
     <div class="help-row"><kbd>Ctrl+F</kbd><span>Поиск по нодам</span></div>
-    <div class="help-row"><kbd>F11</kbd><span>Полный экран</span></div>
+    <div class="help-row">Кнопка 🌙<span>Светлая / тёмная тема</span></div>
+    <div class="help-row">Кнопка ⋯ (ещё)<span>SVG, Таблица сигналов, Сброс зума, Печать…</span></div>
   </div>
 </div>
 

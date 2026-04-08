@@ -1,6 +1,6 @@
 {
   "name": "show-signal-flow",
-  "version": "3.5.0",
+  "version": "3.5.1",
   "description": "Show Signal Flow Editor — Concept Store",
   "main": "main.js",
   "author": "Concept Store",
@@ -50,7 +50,7 @@
       "language": "1049"
     },
     "portable": {
-      "artifactName": "ShowSignalFlow-v3.5.0-portable.exe"
+      "artifactName": "ShowSignalFlow-v3.5.1-portable.exe"
     },
     "mac": {
       "target": [
@@ -58,7 +58,7 @@
       ],
       "icon": "icon.png",
       "category": "public.app-category.utilities",
-      "artifactName": "ShowSignalFlow-v3.5.0-mac-${arch}.zip"
+      "artifactName": "ShowSignalFlow-v3.5.1-mac-${arch}.zip"
     },
     "linux": {
       "target": [
@@ -66,7 +66,7 @@
       ],
       "icon": "icon.png",
       "category": "Utility",
-      "artifactName": "ShowSignalFlow-v3.5.0-linux.AppImage"
+      "artifactName": "ShowSignalFlow-v3.5.1-linux.AppImage"
     }
   }
 }

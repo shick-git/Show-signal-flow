@@ -3016,6 +3016,8 @@ function renderNetPanel(){
           <div class="ctx-item" onclick="closeNetExportMenu();exportNetTable('csv')">📊 CSV (Excel)</div>
           <div class="ctx-sep"></div>
           <div class="ctx-item" onclick="closeNetExportMenu();printNetTable()">🖨 Печать / PDF</div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" onclick="exportNetPatch()">🔧 Патч сети .hta (Windows)</div>
         </div>
       </div>
     </div>
@@ -3139,6 +3141,330 @@ ${errNote}${cards}
 <div class="footer">© Concept Store 2026 · Show Signal Flow ${APP_VERSION}</div>
 </body></html>`;
   dl(URL.createObjectURL(new Blob([html],{type:'text/html'})),'network-structure.html');
+}
+
+function printNetTable(){
+  exportNetTable('html');
+}
+
+function exportNetPatch(){
+  closeNetExportMenu();
+  const projectName = (document.title||'Show Signal Flow').replace(/\s*—.*$/,'').trim();
+  const exportDate  = new Date().toLocaleString('ru-RU');
+
+  // Collect devices with at least an IP
+  const devs = nodes
+    .filter(n => n.netIP || n.netGW)
+    .map(n => {
+      const z = zones.find(z => nodeInZone(n, z));
+      return {
+        name: n.title || n.id,
+        sub:  n.sub1  || '',
+        zone: z ? z.title||z.id : '',
+        ip:   n.netIP   || '',
+        mask: n.netMask || '',
+        gw:   n.netGW   || ''
+      };
+    });
+
+  if (!devs.length) {
+    alert('Нет устройств с сетевыми настройками. Заполните IP-адреса в панели Сеть.');
+    return;
+  }
+
+  const devsJson = JSON.stringify(devs);
+
+  const hta = `<html>
+<head>
+<meta http-equiv="x-ua-compatible" content="ie=11">
+<title>Network Patch \u2014 ${projectName}</title>
+<HTA:APPLICATION
+  APPLICATIONNAME="Network Patch"
+  BORDER="thin"
+  BORDERSTYLE="normal"
+  CAPTION="yes"
+  MAXIMIZEBUTTON="no"
+  MINIMIZEBUTTON="yes"
+  SCROLL="auto"
+  SINGLEINSTANCE="yes"
+  WINDOWSTATE="normal"
+/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#12121f;color:#dde;font-family:"Segoe UI",Arial,sans-serif;font-size:14px;padding:18px 20px;}
+h1{color:#ff9800;font-size:20px;font-weight:700;margin-bottom:3px;}
+.sub{color:#666;font-size:12px;margin-bottom:18px;}
+.warn{background:#2a0c0c;border:1px solid #c0392b;border-radius:6px;padding:10px 14px;
+  color:#e74c3c;font-size:12px;margin-bottom:14px;display:none;}
+.section{color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;}
+.toolbar{display:-ms-flexbox;display:flex;-ms-flex-align:center;align-items:center;
+  gap:10px;background:#1a1a2e;padding:11px 14px;border-radius:7px;margin-bottom:16px;border:1px solid #2a2a44;}
+.toolbar label{color:#888;font-size:12px;white-space:nowrap;}
+select{background:#0f1f3a;color:#dde;border:1px solid #3a3a5a;border-radius:4px;
+  padding:6px 10px;font-size:13px;min-width:220px;outline:none;}
+.rbtn{background:#252545;color:#aaa;border:1px solid #3a3a5a;border-radius:4px;
+  padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap;}
+.rbtn:hover{background:#303060;color:#fff;}
+.devices{display:-ms-flexbox;display:flex;-ms-flex-direction:column;flex-direction:column;gap:8px;margin-bottom:18px;}
+.card{background:#1a1a2e;border:1px solid #2a2a44;border-radius:8px;padding:12px 16px;
+  display:-ms-flexbox;display:flex;-ms-flex-align:center;align-items:center;gap:12px;
+  transition:border-color .2s;}
+.card.ok{border-color:#2e7d32;}
+.card.err{border-color:#c0392b;}
+.dot{width:11px;height:11px;border-radius:50%;background:#333;flex-shrink:0;
+  transition:background .3s;}
+.dot.ok{background:#4caf50;}
+.dot.err{background:#e74c3c;}
+.dot.pend{background:#ff9800;}
+.info{-ms-flex:1;flex:1;min-width:0;}
+.dname{font-size:14px;font-weight:600;color:#eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dzone{font-size:11px;color:#666;margin-bottom:5px;}
+.dnet{font-size:13px;color:#8ab4d8;font-family:Consolas,monospace;}
+.dnet .gw{color:#777;margin-left:10px;}
+.actions{display:-ms-flexbox;display:flex;gap:6px;flex-shrink:0;}
+.btn-apply{background:#ff9800;color:#000;border:none;border-radius:5px;padding:8px 16px;
+  font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.btn-apply:hover{background:#ffa826;}
+.btn-apply:disabled{background:#555;color:#888;cursor:not-allowed;}
+.btn-ping{background:#1e2040;color:#99b;border:1px solid #3a3a5a;border-radius:5px;
+  padding:8px 10px;font-size:12px;cursor:pointer;white-space:nowrap;}
+.btn-ping:hover{background:#252550;color:#cce;}
+.log-wrap{background:#0a0a14;border:1px solid #222;border-radius:6px;padding:12px;
+  font-family:Consolas,monospace;font-size:12px;min-height:100px;max-height:220px;overflow-y:auto;}
+.li{margin-top:4px;}
+.li.ok{color:#4caf50;}.li.err{color:#e74c3c;}.li.inf{color:#777;}.li.warn{color:#ff9800;}
+.bottom-bar{margin-top:14px;display:-ms-flexbox;display:flex;gap:8px;-ms-flex-align:center;align-items:center;}
+.btn-all{background:#1e2040;color:#9ab;border:1px solid #3a3a5a;border-radius:5px;
+  padding:8px 16px;font-size:12px;cursor:pointer;}
+.btn-all:hover{background:#252560;color:#cce;}
+.btn-clr{background:none;color:#555;border:none;font-size:12px;cursor:pointer;margin-left:auto;}
+.btn-clr:hover{color:#aaa;}
+.no-dev{color:#555;text-align:center;padding:24px;font-size:13px;}
+</style>
+</head>
+<body>
+<h1>&#128225; Network Patch</h1>
+<div class="sub">${projectName} &nbsp;&middot;&nbsp; ${exportDate}</div>
+
+<div id="adminWarn" class="warn">
+  &#9888; Для изменения сетевых настроек требуются права Администратора.<br>
+  Закройте окно, кликните правой кнопкой по файлу &#8594; <b>Запуск от имени администратора</b>.
+</div>
+
+<div class="toolbar">
+  <label>Сетевой адаптер:</label>
+  <select id="adSel" onchange="onAdChange()"><option value="">&#8212; загрузка... &#8212;</option></select>
+  <button class="rbtn" onclick="loadAdapters()">&#8635; Обновить</button>
+</div>
+
+<div class="section">Устройства в схеме (${devs.length})</div>
+<div class="devices" id="devList"></div>
+
+<div class="bottom-bar">
+  <button class="btn-all" onclick="applyAll()">&#10003; Применить всё</button>
+  <button class="btn-clr" onclick="clearLog()">Очистить журнал</button>
+</div>
+
+<div class="section" style="margin-top:14px;margin-bottom:6px;">Журнал операций</div>
+<div class="log-wrap" id="log"><span class="li inf">Готов к работе.</span></div>
+
+<script language="JScript">
+var devices=${devsJson};
+var adapters=[];
+
+function runPS(cmd,async_){
+  try{
+    var sh=new ActiveXObject("WScript.Shell");
+    var full='powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '+
+      '"'+cmd.replace(/"/g,"'").replace(/\\\\/g,'\\\\\\\\')+'"';
+    if(async_){ sh.Run(full,0,false); return {ok:true,out:'',err:''}; }
+    var ex=sh.Exec('powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "'+
+      cmd.replace(/"/g,'\\\\"')+'"');
+    var out='',err='';
+    while(!ex.StdOut.AtEndOfStream) out+=ex.StdOut.ReadLine()+'\\n';
+    while(!ex.StdErr.AtEndOfStream) err+=ex.StdErr.ReadLine()+'\\n';
+    return{ok:ex.ExitCode===0,out:out.trim(),err:err.trim()};
+  }catch(e){return{ok:false,out:'',err:e.message};}
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function log(msg,cls){
+  var el=document.getElementById('log');
+  var sp=document.createElement('span');
+  sp.className='li '+(cls||'inf');
+  sp.innerHTML=esc(msg);
+  el.appendChild(document.createElement('br'));
+  el.appendChild(sp);
+  el.scrollTop=el.scrollHeight;
+}
+
+function clearLog(){
+  document.getElementById('log').innerHTML='<span class="li inf">Журнал очищен.</span>';
+}
+
+function loadAdapters(){
+  log('Получение списка сетевых адаптеров...','inf');
+  var res=runPS("$admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);"+
+    "Get-NetAdapter|Where-Object{$_.Status -eq \\'Up\\'}|"+
+    "Select-Object Name,MacAddress,InterfaceDescription|ConvertTo-Json -Compress");
+  if(!res.ok||!res.out){
+    // Check admin
+    var adm=runPS("[bool]([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
+    if(adm.out.indexOf('False')>=0){
+      document.getElementById('adminWarn').style.display='block';
+    }
+    log('Не удалось получить адаптеры. '+(res.err||''),'err');
+    return;
+  }
+  try{
+    var raw=res.out;
+    if(raw.charAt(0)!=='[') raw='['+raw+']';
+    adapters=eval('('+raw+')');
+    var sel=document.getElementById('adSel');
+    sel.innerHTML='<option value="">&#8212; выберите адаптер &#8212;</option>';
+    for(var i=0;i<adapters.length;i++){
+      var a=adapters[i];
+      sel.innerHTML+='<option value="'+esc(a.Name)+'">'+esc(a.Name)+
+        (a.MacAddress?' \u2014 '+esc(a.MacAddress):'')+'</option>';
+    }
+    if(adapters.length===1){
+      sel.selectedIndex=1;
+      onAdChange();
+    }
+    log('Найдено адаптеров: '+adapters.length,'ok');
+  }catch(e){log('Ошибка разбора: '+e.message,'err');}
+}
+
+function onAdChange(){
+  var name=document.getElementById('adSel').value;
+  if(!name) return;
+  var res=runPS("Get-NetIPAddress -InterfaceAlias \\'"+name+
+    "\\' -AddressFamily IPv4 -ErrorAction SilentlyContinue|"+
+    "Select-Object IPAddress,PrefixLength|ConvertTo-Json -Compress");
+  if(res.ok&&res.out){
+    try{
+      var info=eval('('+res.out+')');
+      if(!info.length) info=[info];
+      var cur=[];
+      for(var i=0;i<info.length;i++) cur.push(info[i].IPAddress+'/'+info[i].PrefixLength);
+      log('Адаптер ['+name+'] текущий IP: '+cur.join(', '),'inf');
+    }catch(e){}
+  }else{
+    log('Адаптер ['+name+'] — не удалось получить текущий IP','warn');
+  }
+}
+
+function maskToPrefix(mask){
+  if(!mask) return '24';
+  if(/^\\/\\d+$/.test(mask)) return mask.slice(1);
+  var parts=mask.split('.');
+  if(parts.length!==4) return '24';
+  var bits=0;
+  for(var i=0;i<4;i++){var n=parseInt(parts[i],10);while(n){bits+=(n&1);n>>=1;}}
+  return String(bits);
+}
+
+function setDot(idx,state){
+  var dot=document.getElementById('dot'+idx);
+  var card=document.getElementById('card'+idx);
+  if(!dot||!card) return;
+  dot.className='dot '+(state||'');
+  card.className='card '+(state||'');
+}
+
+function applyDevice(idx){
+  var adapter=document.getElementById('adSel').value;
+  if(!adapter){log('Выберите сетевой адаптер!','err');return;}
+  var d=devices[idx];
+  if(!d.ip){log('Нет IP-адреса для '+d.name,'err');return;}
+  var prefix=maskToPrefix(d.mask);
+  setDot(idx,'pend');
+  log('Применение ['+d.name+']: '+d.ip+'/'+prefix+(d.gw?' gw '+d.gw:'')+'  \u2192  ['+adapter+']...','inf');
+  var ps="$a=\\'"+adapter+"\\';"+
+    "Remove-NetIPAddress -InterfaceAlias $a -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;"+
+    "Remove-NetRoute -InterfaceAlias $a -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;"+
+    "New-NetIPAddress -InterfaceAlias $a -AddressFamily IPv4 -IPAddress \\'"+d.ip+
+    "\\' -PrefixLength "+prefix+
+    (d.gw?" -DefaultGateway \\'"+d.gw+"\\'":"")+
+    " -ErrorAction Stop";
+  var res=runPS(ps);
+  if(res.ok){
+    setDot(idx,'ok');
+    log('\u2713 '+d.name+': '+d.ip+'/'+prefix+(d.gw?' gw '+d.gw:'')+' \u2014 Применено','ok');
+  }else{
+    setDot(idx,'err');
+    log('\u2717 '+d.name+': '+(res.err||res.out||'Ошибка (возможно нет прав Admin)'),'err');
+    if((res.err+res.out).indexOf('Access')>=0||!res.err){
+      document.getElementById('adminWarn').style.display='block';
+    }
+  }
+}
+
+function pingDevice(idx){
+  var d=devices[idx];
+  if(!d.ip){log('Нет IP для '+d.name,'err');return;}
+  log('Пинг '+d.ip+'...','inf');
+  var res=runPS("Test-Connection -ComputerName \\'"+d.ip+
+    "\\' -Count 3 -ErrorAction SilentlyContinue|"+
+    "Select-Object -ExpandProperty ResponseTime|"+
+    "Measure-Object -Average|Select-Object -ExpandProperty Average");
+  if(res.ok&&res.out&&res.out!==''){
+    var avg=Math.round(parseFloat(res.out));
+    log('\u2713 '+d.ip+' \u2014 отвечает, avg '+avg+' мс','ok');
+  }else{
+    log('\u2717 '+d.ip+' \u2014 нет ответа','err');
+  }
+}
+
+function applyAll(){
+  var adapter=document.getElementById('adSel').value;
+  if(!adapter){log('Выберите сетевой адаптер перед применением!','err');return;}
+  if(!window.confirm('Применить сетевые настройки ВСЕХ '+devices.length+' устройств на адаптер ['+adapter+']?\\n\\nЭто заменит текущие настройки адаптера!')){return;}
+  log('=== Пакетное применение ('+devices.length+' устройств) ===','warn');
+  for(var i=0;i<devices.length;i++){
+    if(devices[i].ip) applyDevice(i);
+  }
+}
+
+function renderDevices(){
+  var list=document.getElementById('devList');
+  if(!devices.length){
+    list.innerHTML='<div class="no-dev">Нет устройств с сетевыми настройками</div>';
+    return;
+  }
+  var html='';
+  for(var i=0;i<devices.length;i++){
+    var d=devices[i];
+    var netStr=d.ip||'(нет IP)';
+    if(d.mask) netStr+=' / '+d.mask;
+    var gwStr=d.gw?'<span class="gw">gw '+esc(d.gw)+'</span>':'';
+    html+='<div class="card" id="card'+i+'">'+
+      '<div class="dot" id="dot'+i+'"></div>'+
+      '<div class="info">'+
+        '<div class="dname">'+esc(d.name)+(d.sub?' <span style="color:#666;font-weight:400;font-size:12px">\u2014 '+esc(d.sub)+'</span>':'')+'</div>'+
+        '<div class="dzone">'+(d.zone?'&#128205; '+esc(d.zone):'&#9711; Без зоны')+'</div>'+
+        '<div class="dnet">'+esc(netStr)+' '+gwStr+'</div>'+
+      '</div>'+
+      '<div class="actions">'+
+        '<button class="btn-ping" onclick="pingDevice('+i+')">&#128280; Пинг</button>'+
+        '<button class="btn-apply" onclick="applyDevice('+i+')">Применить</button>'+
+      '</div>'+
+    '</div>';
+  }
+  list.innerHTML=html;
+}
+
+window.onload=function(){
+  renderDevices();
+  loadAdapters();
+};
+</script>
+</body>
+</html>`;
+
+  dl(URL.createObjectURL(new Blob([hta],{type:'text/html'})), 'network-patch.hta');
+  log('Экспортирован network-patch.hta ('+devs.length+' устройств)');
 }
 
 function printNetTable(){
