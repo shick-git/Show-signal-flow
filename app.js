@@ -481,6 +481,27 @@ function collapsedZoneOf(n){
 // «виртуальная нода» для центра полосы свёрнутой зоны
 function zoneBar(z){ return {x:z.x,y:z.y,w:z.w,h:26}; }
 
+// Быстрое обновление одного ребра во время drag waypoint — не перестраивает весь EL
+function rEdgeFast(e){
+  const cached=_egCache.get(e.id); if(!cached) return;
+  const fn=nb(e.from),tn=nb(e.to); if(!fn||!tn) return;
+  const fz=collapsedZoneOf(fn),tz=collapsedZoneOf(tn);
+  const effFn=fz?zoneBar(fz):fn, effTn=tz?zoneBar(tz):tn;
+  const useWP=!fz&&!tz?e.wp:[];
+  const tnCx=effTn.x+effTn.w/2,tnCy=effTn.y+effTn.h/2;
+  const fnCx=effFn.x+effFn.w/2,fnCy=effFn.y+effFn.h/2;
+  const p1=useWP.length?bpt(effFn,useWP[0].x,useWP[0].y):bpt(effFn,tnCx,tnCy);
+  const p2=useWP.length?bpt(effTn,useWP[useWP.length-1].x,useWP[useWP.length-1].y):bpt(effTn,fnCx,fnCy);
+  const chain=[p1,...useWP.map(p=>({...p})),p2];
+  const pts=chain.map(p=>p.x+','+p.y).join(' ');
+  const {g,hit}=cached;
+  const poly=g.querySelector('polyline:not(.edge-hit)');
+  if(poly) sa(poly,{points:pts});
+  sa(hit,{points:pts});
+  const circles=g.querySelectorAll('.waypoint');
+  e.wp.forEach((wp,i)=>{ if(circles[i]) sa(circles[i],{cx:wp.x,cy:wp.y}); });
+}
+
 function rEdges(){
   const seen=new Set();
   edges.forEach(e=>{
@@ -553,9 +574,9 @@ function rEdges(){
         const mm=e2=>{
           const d=svgDelta(e2.clientX-sx,e2.clientY-sy);
           if(!wpMoved){ snapshot('Точка маршрута'); wpMoved=true; }
-          wp.x=ox+d.dx; wp.y=oy+d.dy; rEdges();
+          wp.x=ox+d.dx; wp.y=oy+d.dy; rEdgeFast(e);
         };
-        startDrag(mm);
+        startDrag(mm, ()=>rEdges());
       });
       wh.addEventListener('dblclick',ev=>{
         ev.stopPropagation(); snapshot('Удалить точку');
@@ -643,15 +664,17 @@ function rNodes(){
       x:n.x+n.w-8,y:n.y+autoH-8,width:8,height:8,rx:1,class:'resize-handle'
     });
     rh.addEventListener('mousedown',ev=>{
-      ev.stopPropagation(); snapshot('Размер ноды');
+      ev.stopPropagation();
       const sx=ev.clientX,sy=ev.clientY,ow=n.w,oh=autoH;
+      let rhMoved=false;
       const mm=e2=>{
         const d=svgDelta(e2.clientX-sx,e2.clientY-sy);
+        if(!rhMoved){ snapshot('Размер ноды'); rhMoved=true; }
         n.w=Math.max(100,ow+d.dx);
         n.h=Math.max(40,oh+d.dy);
         rAll();
       };
-      startDrag(mm);
+      startDrag(mm, ()=>{ if(rhMoved) rAll(); });
     });
     g.appendChild(rh);
 
@@ -713,7 +736,7 @@ function rNotes(){
         note.h=Math.max(40,oh+d.dy);
         rNotes();
       };
-      startDrag(mm);
+      startDrag(mm, ()=>{ if(nrMoved) rNotes(); });
     });
     g.appendChild(rh);
 
@@ -2506,8 +2529,8 @@ function zoomIn() { const {w,h}=getVPSize(); zoomAt(w/2,h/2,+(vb.z+ZOOM_STEP).to
 function zoomOut(){ const {w,h}=getVPSize(); zoomAt(w/2,h/2,+(vb.z-ZOOM_STEP).toFixed(3)); }
 function zoomReset(){
   const {w,h}=getVPSize();
-  // fit all nodes
-  let mnX=9999,mnY=9999,mxX=0,mxY=0;
+  if(!nodes.length){ vb.x=0; vb.y=0; vb.z=1; applyVB(); return; }
+  let mnX=Infinity,mnY=Infinity,mxX=-Infinity,mxY=-Infinity;
   nodes.forEach(n=>{ mnX=Math.min(mnX,n.x); mnY=Math.min(mnY,n.y); mxX=Math.max(mxX,n.x+n.w); mxY=Math.max(mxY,n.y+n.h); });
   const pad=60, cw=mxX-mnX+pad*2, ch=mxY-mnY+pad*2;
   vb.z = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(w/cw, h/ch)));
