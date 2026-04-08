@@ -3,8 +3,8 @@ name: Build
 on:
   push:
     tags:
-      - 'v*'          # запускается при пуше тега вида v3.3.1
-  workflow_dispatch:  # ручной запуск из интерфейса GitHub
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
 
@@ -15,15 +15,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - run: npm ci
 
       - name: Build Windows portable
-        run: npm run build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win portable --publish never
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -38,15 +36,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - run: npm ci
 
       - name: Build macOS DMG
-        run: npm run build-mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --mac dmg --publish never
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
