@@ -539,6 +539,7 @@ function rEdges(){
         const pt=svgCoords(ev); e.wp.push({x:pt.x,y:pt.y}); rEdges();
       });
       cached={g,hit};
+      hit.dataset.eid=e.id;
       _egCache.set(e.id,cached);
     }
     const {g,hit}=cached;
@@ -616,7 +617,7 @@ function rNodes(){
       dragNode(g); // ищет ноду по g.dataset.id внутри mousedown
       g.addEventListener('dblclick',ev=>{
         ev.stopPropagation();
-        const cur=nb(g.dataset.id); if(cur&&mode!=='connect') openNE(cur,ev);
+        const cur=nb(g.dataset.id); if(cur&&mode!=='connect') openQE(cur,ev);
       });
       g.addEventListener('click',ev=>{
         if(mode==='connect'){ ev.stopPropagation(); return; }
@@ -1195,6 +1196,7 @@ const preview=document.getElementById('con-preview');
 function setMode(m){
   mode=m;
   if(_conMM){ document.removeEventListener('mousemove',_conMM); _conMM=null; }
+  NL&&NL.querySelectorAll&&NL.querySelectorAll('.connect-source').forEach(r=>r.classList.remove('connect-source'));
   connectFrom=null;
   preview.style.display='none';
   document.body.classList.toggle('connect-mode', m==='connect');
@@ -1212,6 +1214,8 @@ function toggleConnect(){
 function startConnect(node){
   if(_conMM){ document.removeEventListener('mousemove',_conMM); _conMM=null; }
   connectFrom={node};
+  const _csg=_ngCache.get(node.id);
+  if(_csg){const _csr=_csg.querySelector('.node-rect');if(_csr)_csr.classList.add('connect-source');}
   const cx=node.x+node.w/2, cy=node.y+nodeH(node)/2;
   sa(preview,{x1:cx,y1:cy,x2:cx,y2:cy});
   preview.style.display='';
@@ -1221,6 +1225,7 @@ function startConnect(node){
 
 function cancelConnect(){
   if(_conMM){ document.removeEventListener('mousemove',_conMM); _conMM=null; }
+  if(connectFrom){const _csg=_ngCache.get(connectFrom.node.id);if(_csg){const _csr=_csg.querySelector('.node-rect');if(_csr)_csr.classList.remove('connect-source');}}
   connectFrom=null;
   preview.style.display='none';
 }
@@ -1632,6 +1637,42 @@ function centerOnNode(n){
 
 
 // ═══════════════════════════════════════════════════════════
+// ── QUICK EDIT (dblclick на ноде) ──────────────────────────
+let _qeNode=null;
+
+function openQE(node, ev){
+  _qeNode=node;
+  const d=document.getElementById('qed');
+  document.getElementById('qe-t').value=node.title||'';
+  document.getElementById('qe-s1').value=node.sub1||'';
+  document.getElementById('qe-s2').value=node.sub2||'';
+  // позиционируем рядом с нодой
+  const x=Math.min(ev.clientX+10, window.innerWidth-260);
+  const y=Math.min(ev.clientY-10, window.innerHeight-180);
+  d.style.left=x+'px'; d.style.top=y+'px'; d.style.display='block';
+  document.getElementById('qe-t').select();
+}
+
+function saveQE(){
+  if(!_qeNode) return;
+  snapshot('Переименовать ноду');
+  _qeNode.title=document.getElementById('qe-t').value;
+  _qeNode.sub1=document.getElementById('qe-s1').value;
+  _qeNode.sub2=document.getElementById('qe-s2').value;
+  closeQE(); rNodes();
+}
+
+function closeQE(){
+  document.getElementById('qed').style.display='none';
+  _qeNode=null;
+}
+
+function openQEProps(){
+  const node=_qeNode;
+  closeQE();
+  if(node) openNE(node, {clientX:window.innerWidth/2, clientY:window.innerHeight/2});
+}
+
 // NODE EDITOR
 // ═══════════════════════════════════════════════════════════
 let EN=null;
@@ -2561,6 +2602,10 @@ let spaceHeld=false, panning=false, panStart={x:0,y:0}, vbStart={x:0,y:0};
 document.addEventListener('keydown', ev=>{
   // Ctrl+F: перехватываем до блокировки INPUT
   if(ev.code==='KeyF'&&(ev.ctrlKey||ev.metaKey)){ ev.preventDefault(); openSearch(); return; }
+  if(document.getElementById('qed').style.display==='block'){
+    if(ev.key==='Escape'){ closeQE(); ev.preventDefault(); return; }
+    if(ev.key==='Enter' && !ev.shiftKey){ saveQE(); ev.preventDefault(); return; }
+  }
   if(ev.target.tagName==='INPUT'||ev.target.tagName==='TEXTAREA') return;
   if(ev.code==='Space' && !spaceHeld){ spaceHeld=true; document.body.classList.add('space-held'); ev.preventDefault(); }
   if(ev.code==='KeyV'&&!ev.ctrlKey&&!ev.metaKey) setMode('select');
@@ -2592,6 +2637,7 @@ document.addEventListener('keyup', ev=>{
 });
 
 document.getElementById('cw').addEventListener('mousedown', ev=>{
+  if(!ev.target.closest('#qed')) closeQE();
   // middle mouse or space+left = pan
   if(ev.button===1 || (ev.button===0 && spaceHeld)){
     ev.preventDefault();
@@ -2612,8 +2658,108 @@ document.getElementById('cw').addEventListener('mousedown', ev=>{
   }
 });
 
-// prevent context menu on middle click
-document.getElementById('cw').addEventListener('contextmenu', ev=>{ if(ev.button===1) ev.preventDefault(); });
+// ═══════════════════════════════════════════════════════════
+// CONTEXT MENU
+// ═══════════════════════════════════════════════════════════
+function showCtxMenu(items, x, y){
+  const m=document.getElementById('ctx-menu');
+  m.innerHTML='';
+  items.forEach(it=>{
+    if(it.sep){ m.appendChild(Object.assign(document.createElement('div'),{className:'ctx-sep'})); return; }
+    if(it.group){ const d=document.createElement('div'); d.className='ctx-group-lbl'; d.textContent=it.group; m.appendChild(d); return; }
+    const d=document.createElement('div');
+    d.className='ctx-item'+(it.danger?' danger':'')+(it.disabled?' disabled':'');
+    d.textContent=it.label;
+    if(it.action) d.addEventListener('click',()=>{ hideCtxMenu(); it.action(); });
+    m.appendChild(d);
+  });
+  // позиционирование с учётом границ экрана
+  m.style.display='block';
+  const mw=m.offsetWidth, mh=m.offsetHeight;
+  m.style.left=Math.min(x, window.innerWidth-mw-8)+'px';
+  m.style.top=Math.min(y, window.innerHeight-mh-8)+'px';
+}
+function hideCtxMenu(){ document.getElementById('ctx-menu').style.display='none'; }
+
+function ctxNode(node, ev){
+  showCtxMenu([
+    {label:'📋  Свойства…', action:()=>openNE(node,ev)},
+    {label:'✏️  Переименовать', action:()=>openQE(node,ev)},
+    {label:'⧉  Дублировать', action:()=>{
+      snapshot('Дублировать ноду');
+      const n2={...JSON.parse(JSON.stringify(node)), id:uid(), x:node.x+20, y:node.y+20};
+      nodes.push(n2); rAll();
+    }},
+    {sep:true},
+    {label:'🗑  Удалить', danger:true, action:()=>{
+      snapshot('Удалить ноду'); removeNode(node.id); rAll();
+    }},
+  ], ev.clientX, ev.clientY);
+}
+function ctxEdge(edge, ev){
+  showCtxMenu([
+    {label:'✏️  Изменить метку', action:()=>openEE(edge,ev)},
+    {label:'✕  Удалить точки маршрута', disabled:!edge.wp||!edge.wp.length, action:()=>{
+      snapshot('Сбросить маршрут'); edge.wp=[]; rEdges();
+    }},
+    {sep:true},
+    {label:'🗑  Удалить связь', danger:true, action:()=>{
+      snapshot('Удалить связь'); edges=edges.filter(e=>e.id!==edge.id); rEdges();
+    }},
+  ], ev.clientX, ev.clientY);
+}
+function ctxZone(zone, ev){
+  showCtxMenu([
+    {label:'✏️  Редактировать', action:()=>openZoneEditor(zone,ev)},
+    {label: zone.collapsed?'▼  Развернуть':'▲  Свернуть', action:()=>{
+      snapshot(zone.collapsed?'Развернуть зону':'Свернуть зону');
+      zone.collapsed=!zone.collapsed; rAll();
+    }},
+    {sep:true},
+    {label:'🗑  Удалить зону', danger:true, action:()=>{
+      snapshot('Удалить зону'); zones=zones.filter(z=>z.id!==zone.id); rAll();
+    }},
+  ], ev.clientX, ev.clientY);
+}
+function ctxCanvas(ev){
+  const items=[
+    {group:'Добавить'},
+    {label:'＋  Нода', action:()=>addNode()},
+    {label:'☐  Зона', action:()=>addZone()},
+    {label:'📝  Заметка', action:()=>addNote()},
+  ];
+  if(clipboard&&clipboard.length){
+    items.push({sep:true});
+    items.push({label:`📋  Вставить (${clipboard.length})`, action:()=>pasteNodes()});
+  }
+  showCtxMenu(items, ev.clientX, ev.clientY);
+}
+
+document.getElementById('cw').addEventListener('contextmenu',ev=>{
+  ev.preventDefault();
+  if(mode==='connect') return;
+  const nodeGrp=ev.target.closest('.node-group');
+  const zoneGrp=ev.target.closest('.zone-group');
+  const edgeEl=ev.target.closest('.edge-hit');
+  if(nodeGrp){
+    const n=nb(nodeGrp.dataset.id); if(n) ctxNode(n,ev);
+  } else if(edgeEl){
+    const eid=edgeEl.dataset.eid;
+    const e=edges.find(x=>x.id===eid); if(e) ctxEdge(e,ev);
+  } else if(zoneGrp){
+    const p=svgCoords(ev);
+    const z=zones.find(z2=>p.x>=z2.x&&p.x<=z2.x+z2.w&&p.y>=z2.y&&p.y<=z2.y+(z2.collapsed?26:z2.h));
+    if(z) ctxZone(z,ev); else ctxCanvas(ev);
+  } else {
+    ctxCanvas(ev);
+  }
+});
+
+document.addEventListener('mousedown',ev=>{
+  if(!ev.target.closest('#ctx-menu')) hideCtxMenu();
+  if(!ev.target.closest('#more-menu,#btn-more')) hideMoreMenu();
+  if(!ev.target.closest('#net-export-menu,#btn-net-export')) closeNetExportMenu();
+},{capture:true});
 
 // resize handler
 window.addEventListener('resize', applyVB);
@@ -2627,10 +2773,16 @@ function nodeInZone(n, z){
   return ncx >= z.x && ncx <= z.x + z.w && ncy >= z.y && ncy <= z.y + z.h;
 }
 
+// ── NETWORK PANEL ──────────────────────────────────────────
+let _netSearch = '';
+let _netZoneFilter = '';
+let _netShowTopo = true;
+let _netExportMenuOpen = false;
+
 function showNetPanel(){
   document.getElementById('cw').style.display = 'none';
-  const panel = document.getElementById('net-panel');
-  panel.style.display = 'block';
+  document.getElementById('net-panel').style.display = 'block';
+  _netSearch = ''; _netZoneFilter = '';
   renderNetPanel();
 }
 
@@ -2639,124 +2791,265 @@ function closeNetPanel(){
   document.getElementById('cw').style.display = 'block';
 }
 
+// ── Валидация IP ──
+function _isValidIP(v){
+  if(!v) return true; // пустое — ок
+  return /^(\d{1,3}\.){3}\d{1,3}$/.test(v) && v.split('.').every(o=>+o<=255);
+}
+function _isValidMask(v){
+  if(!v) return true;
+  return /^\/\d{1,2}$/.test(v) || (/^(\d{1,3}\.){3}\d{1,3}$/.test(v) && v.split('.').every(o=>+o<=255));
+}
+function _sameSubnet(ip, mask, gw){
+  if(!ip||!mask||!gw) return true; // не валидировать неполные данные
+  try{
+    const toInt = a => a.split('.').reduce((r,o)=>((r<<8)+(+o))>>>0, 0);
+    let m = 0;
+    if(mask.startsWith('/')){
+      const bits=+mask.slice(1); m=bits?((0xffffffff<<(32-bits))>>>0):0;
+    } else { m=toInt(mask); }
+    return (toInt(ip)&m)===(toInt(gw)&m);
+  } catch(e){ return true; }
+}
+function _getAllIPs(){
+  const map={}; nodes.forEach(n=>{ if(n.ip) map[n.ip]=(map[n.ip]||[]); map[n.ip].push(n); }); return map;
+}
+
+function netValidateInput(input, nodeId, field){
+  const n = nb(nodeId); if(!n) return;
+  const val = input.value.trim();
+  n[field] = val;
+  let ok = true;
+  if(field==='ip'||field==='gw') ok = _isValidIP(val);
+  if(field==='mask') ok = _isValidMask(val);
+  // дублирование IP
+  if(field==='ip' && val && ok){
+    const ips = _getAllIPs();
+    if(ips[val] && ips[val].length > 1) ok = false;
+  }
+  input.classList.toggle('ip-invalid', !ok);
+  input.classList.toggle('ip-valid', ok && !!val);
+  // несовместимость шлюза с подсетью
+  if(ok && (field==='ip'||field==='mask'||field==='gw')){
+    const subOk = _sameSubnet(n.ip, n.mask, n.gw);
+    if(!subOk) input.classList.add('ip-invalid');
+  }
+}
+
+function netSaveField(input, nodeId, field, label){
+  const n=nb(nodeId); if(!n) return;
+  n[field]=input.value.trim();
+  snapshot(label);
+  if(!input.classList.contains('ip-invalid')){
+    input.classList.remove('ip-valid');
+    input.classList.add('ip-saved');
+    setTimeout(()=>input.classList.remove('ip-saved'), 500);
+  }
+}
+
+// ── SVG топология ──
+function _renderTopoSVG(sectionEdges, sectionIds){
+  if(!sectionEdges.length) return '';
+  const NODE_W=100, NODE_H=28, PAD=16, GAP_X=120, GAP_Y=44;
+  // собираем уникальные ноды
+  const nodeSet = new Map();
+  sectionEdges.forEach(({fn,tn,internal})=>{
+    if(!nodeSet.has(fn.id)) nodeSet.set(fn.id,{n:fn,internal:sectionIds.has(fn.id)});
+    if(!nodeSet.has(tn.id)) nodeSet.set(tn.id,{n:tn,internal:sectionIds.has(tn.id)});
+  });
+  const nodeArr = [...nodeSet.values()];
+  // простое размещение в ряд
+  const cols = Math.min(nodeArr.length, 5);
+  const rows = Math.ceil(nodeArr.length/cols);
+  const W = cols*(NODE_W+GAP_X)+PAD*2;
+  const H = rows*(NODE_H+GAP_Y)+PAD*2;
+  const pos = {};
+  nodeArr.forEach(({n},i)=>{
+    const col=i%cols, row=Math.floor(i/cols);
+    pos[n.id]={x:PAD+col*(NODE_W+GAP_X)+NODE_W/2, y:PAD+row*(NODE_H+GAP_Y)+NODE_H/2};
+  });
+  // рисуем
+  let svg=`<svg width="${W}" height="${H}" style="display:block;" xmlns="http://www.w3.org/2000/svg">`;
+  // рёбра
+  sectionEdges.forEach(({e,fn,tn,internal})=>{
+    const p1=pos[fn.id],p2=pos[tn.id]; if(!p1||!p2) return;
+    const mid_x=(p1.x+p2.x)/2;
+    const stroke=internal?'#94a3b8':'#f97316';
+    const dash=internal?'':'5,3';
+    svg+=`<path d="M${p1.x},${p1.y} C${mid_x},${p1.y} ${mid_x},${p2.y} ${p2.x},${p2.y}"
+      fill="none" stroke="${stroke}" stroke-width="1.5" stroke-dasharray="${dash}" marker-end="url(#topoArr)"/>`;
+    if(e.label){
+      const lx=(p1.x+p2.x)/2, ly=(p1.y+p2.y)/2;
+      svg+=`<rect x="${lx-20}" y="${ly-7}" width="40" height="13" rx="3" fill="#fff" stroke="#e0e0e0"/>`;
+      svg+=`<text x="${lx}" y="${ly+1}" text-anchor="middle" font-size="8" fill="#666" font-family="Arial">${e.label}</text>`;
+    }
+  });
+  // маркер стрелки
+  svg+=`<defs><marker id="topoArr" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
+    <polygon points="0 0,6 2.5,0 5" fill="#94a3b8"/>
+  </marker></defs>`;
+  // ноды
+  nodeArr.forEach(({n,internal})=>{
+    const p=pos[n.id]; if(!p) return;
+    const dtCol=getDevtypeColor(n.deviceType)||'#94a3b8';
+    const fill=internal?'#f8fafc':'#fff8f0';
+    const stroke=internal?dtCol:'#f97316';
+    const lbl=n.title.length>14?n.title.slice(0,13)+'…':n.title;
+    svg+=`<rect x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="${NODE_H}"
+      rx="4" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+    svg+=`<rect x="${p.x-NODE_W/2}" y="${p.y-NODE_H/2}" width="${NODE_W}" height="3" rx="2" fill="${dtCol}"/>`;
+    svg+=`<text x="${p.x}" y="${p.y+1}" text-anchor="middle" dominant-baseline="middle"
+      font-size="9" font-family="Arial" fill="#333" font-weight="600">${lbl}</text>`;
+    if(!internal) svg+=`<text x="${p.x+NODE_W/2-3}" y="${p.y-NODE_H/2-3}" text-anchor="end"
+      font-size="8" fill="#f97316">↗</text>`;
+  });
+  svg+='</svg>';
+  return `<div class="net-topo-svg">
+    <div class="net-topo-svg-title">Топология</div>${svg}</div>`;
+}
+
 function renderNetPanel(){
   const panel = document.getElementById('net-panel');
+  const search = _netSearch.toLowerCase();
+  const zFilter = _netZoneFilter;
 
   const assigned = new Set();
-  const zoneGroups = zones.map(z => {
+  const allZoneGroups = zones.map(z => {
     const zn = nodes.filter(n => nodeInZone(n, z));
     zn.forEach(n => assigned.add(n.id));
     return {zone: z, nodes: zn};
   }).filter(g => g.nodes.length);
   const unassigned = nodes.filter(n => !assigned.has(n.id));
 
-  function renderCard(label, color, nodeList){
+  function renderCard(label, color, nodeList, zoneId){
     if(!nodeList.length) return '';
+    // фильтр по зоне
+    if(zFilter && zoneId !== zFilter) return '';
+    // фильтр по поиску
+    const filtered = search
+      ? nodeList.filter(n=>(n.title||'').toLowerCase().includes(search)||(n.sub1||'').toLowerCase().includes(search)||(n.ip||'').includes(search))
+      : nodeList;
+    if(!filtered.length) return '';
+
     const sectionIds = new Set(nodeList.map(n => n.id));
-    const sectionEdges = edges.filter(e => sectionIds.has(e.from) || sectionIds.has(e.to))
+    const sectionEdges = edges
+      .filter(e => sectionIds.has(e.from) || sectionIds.has(e.to))
       .map(e => { const fn=nb(e.from),tn=nb(e.to); return (fn&&tn)?{e,fn,tn,internal:sectionIds.has(e.from)&&sectionIds.has(e.to)}:null; })
       .filter(Boolean);
 
-    const rows = nodeList.map(n => {
+    const rows = filtered.map(n => {
       const dtCol = getDevtypeColor(n.deviceType) || '#999';
       const id = n.id;
+      // подсветка поиска
+      const hi = t => search && t.toLowerCase().includes(search)
+        ? t.replace(new RegExp(search,'gi'), m=>`<mark style="background:#fff176">${m}</mark>`) : t;
       return `<tr>
         <td>
           <div class="net-dev-cell">
             <div class="net-dev-dot" style="background:${dtCol};"></div>
             <div>
-              <div class="net-dev-title">${n.title}</div>
-              ${n.sub1 ? `<div class="net-dev-sub">${n.sub1}</div>` : ''}
+              <div class="net-dev-title">${hi(n.title)}</div>
+              ${n.sub1 ? `<div class="net-dev-sub">${hi(n.sub1)}</div>` : ''}
             </div>
           </div>
         </td>
-        <td><input class="net-input" placeholder="192.168.x.x" value="${n.ip||''}"
-          oninput="nb('${id}').ip=this.value" onblur="snapshot('IP')"></td>
-        <td><input class="net-input" placeholder="/24 или 255.255.255.0" value="${n.mask||''}"
-          oninput="nb('${id}').mask=this.value" onblur="snapshot('Маска')"></td>
-        <td><input class="net-input" placeholder="192.168.x.1" value="${n.gw||''}"
-          oninput="nb('${id}').gw=this.value" onblur="snapshot('Шлюз')"></td>
+        <td><input class="net-input${!_isValidIP(n.ip)?' ip-invalid':''}" style="font-family:monospace;font-size:10px;" placeholder="192.168.x.x" value="${n.ip||''}"
+          oninput="netValidateInput(this,'${id}','ip')" onblur="netSaveField(this,'${id}','ip','IP')"></td>
+        <td><input class="net-input${!_isValidMask(n.mask)?' ip-invalid':''}" style="font-family:monospace;font-size:10px;" placeholder="/24" value="${n.mask||''}"
+          oninput="netValidateInput(this,'${id}','mask')" onblur="netSaveField(this,'${id}','mask','Маска')"></td>
+        <td><input class="net-input${!_isValidIP(n.gw)?' ip-invalid':''}" style="font-family:monospace;font-size:10px;" placeholder="192.168.x.1" value="${n.gw||''}"
+          oninput="netValidateInput(this,'${id}','gw')" onblur="netSaveField(this,'${id}','gw','Шлюз')"></td>
         <td><input class="net-input" placeholder="Примечание" value="${n.netNote||''}"
           oninput="nb('${id}').netNote=this.value" onblur="snapshot('Примечание')"></td>
       </tr>`;
     }).join('');
 
-    const topoItems = sectionEdges.map(({e, fn, tn, internal}) => {
-      const proto = [e.label, e.cable].filter(Boolean).join(' · ') || '—';
-      return `<div class="net-topo-item">
-        <span class="net-topo-from">${fn.title}</span>
-        <span class="net-topo-arrow">→</span>
-        <span class="net-topo-proto">${proto}</span>
-        <span class="net-topo-arrow">→</span>
-        <span class="net-topo-to">${tn.title}</span>
-        ${!internal ? '<span class="net-topo-ext">внешнее</span>' : ''}
-      </div>`;
-    }).join('');
+    const topo = _netShowTopo && sectionEdges.length ? _renderTopoSVG(sectionEdges, sectionIds) : '';
 
     return `<div class="net-zone-card">
       <div class="net-zone-hdr" style="background:${color}12;border-left:3px solid ${color};">
         <div class="net-zone-dot" style="background:${color};"></div>
         <span>${label}</span>
-        <span class="net-zone-count">${nodeList.length} устройств</span>
+        <span class="net-zone-count">${filtered.length}${filtered.length!==nodeList.length?'/'+nodeList.length:''} устр.</span>
       </div>
       <div class="net-zone-body">
         <table class="net-table">
           <thead><tr>
-            <th style="width:220px;">Устройство</th>
-            <th style="width:140px;">IP адрес</th>
-            <th style="width:160px;">Маска подсети</th>
-            <th style="width:140px;">Шлюз</th>
+            <th>Устройство</th>
+            <th>IP</th>
+            <th>Маска</th>
+            <th>Шлюз</th>
             <th>Примечание</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        ${sectionEdges.length ? `<div class="net-topo">
-          <div class="net-topo-title">Подключения</div>
-          ${topoItems}
-        </div>` : ''}
+        ${topo}
       </div>
     </div>`;
   }
 
-  let cards = zoneGroups.map(({zone, nodes: zn}) =>
-    renderCard(zone.label || 'Зона', zone.color || '#4a9eff', zn)
+  // опции для select зон
+  const zoneOptions = allZoneGroups.map(({zone})=>
+    `<option value="${zone.id}"${_netZoneFilter===zone.id?' selected':''}>${zone.label||'Зона'}</option>`
   ).join('');
-  if(unassigned.length) cards += renderCard('Вне зон', '#888', unassigned);
-  if(!cards) cards = `<div style="text-align:center;padding:60px 0;color:#aaa;font-size:13px;">
-    Нет устройств. Добавьте ноды и зоны на схему — они появятся здесь.
+
+  // считаем ошибки валидации
+  const errCount = nodes.filter(n=>n.ip&&!_isValidIP(n.ip)||n.mask&&!_isValidMask(n.mask)||n.gw&&!_isValidIP(n.gw)).length;
+  const errBadge = errCount ? `<span style="background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;margin-left:8px;">⚠ ${errCount}</span>` : '';
+
+  let cards = allZoneGroups.map(({zone, nodes: zn}) =>
+    renderCard(zone.label||'Зона', zone.color||'#4a9eff', zn, zone.id)
+  ).join('');
+  if(!_netZoneFilter && unassigned.length) cards += renderCard('Вне зон', '#888', unassigned, '__unassigned__');
+  if(!cards.trim()) cards = `<div style="text-align:center;padding:60px 0;color:#aaa;font-size:13px;">
+    ${search||_netZoneFilter ? 'Ничего не найдено. Измените поиск или фильтр.' : 'Нет устройств. Добавьте ноды и зоны на схему.'}
   </div>`;
 
   panel.innerHTML = `
     <div class="net-topbar">
       <button class="net-back-btn" onclick="closeNetPanel()">← К схеме</button>
-      <span class="net-topbar-title">Структура сети</span>
-      <span class="net-topbar-sub">${nodes.length} устр. · ${zoneGroups.length} зон</span>
-      <div style="margin-left:auto;">
-        <button class="tbtn" onclick="exportNetTable()">⬇ Экспорт</button>
+      <span class="net-topbar-title">Структура сети${errBadge}</span>
+      <div class="net-export-wrap" style="margin-left:auto;">
+        <button class="tbtn" onclick="toggleNetExportMenu()" id="btn-net-export">⬇ Экспорт ▾</button>
+        <div id="net-export-menu">
+          <div class="ctx-item" onclick="closeNetExportMenu();exportNetTable('html')">📄 HTML (просмотр)</div>
+          <div class="ctx-item" onclick="closeNetExportMenu();exportNetTable('csv')">📊 CSV (Excel)</div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" onclick="closeNetExportMenu();printNetTable()">🖨 Печать / PDF</div>
+        </div>
       </div>
+    </div>
+    <div class="net-control-bar">
+      <input class="net-search" type="text" placeholder="Найти устройство, IP…"
+        value="${_netSearch}"
+        oninput="_netSearch=this.value;renderNetPanel()">
+      <select class="net-zone-select" onchange="_netZoneFilter=this.value;renderNetPanel()">
+        <option value="">Все зоны</option>
+        ${zoneOptions}
+        ${unassigned.length?`<option value="__unassigned__"${_netZoneFilter==='__unassigned__'?' selected':''}>Вне зон</option>`:''}
+      </select>
+      <label class="net-topo-toggle">
+        <input type="checkbox" ${_netShowTopo?'checked':''} onchange="_netShowTopo=this.checked;renderNetPanel()">
+        Топология
+      </label>
+      <span class="net-stats">${nodes.length} устр. · ${zones.length} зон</span>
     </div>
     <div class="net-content">${cards}</div>`;
 }
 
-function exportNetTable(){
+function toggleNetExportMenu(){
+  const m=document.getElementById('net-export-menu');
+  m.style.display = m.style.display==='block' ? 'none' : 'block';
+}
+function closeNetExportMenu(){
+  const m=document.getElementById('net-export-menu');
+  if(m) m.style.display='none';
+}
+
+function exportNetTable(format='html'){
   const date = new Date().toLocaleDateString('ru-RU');
   const title = document.title.replace(/\s*—.*$/,'');
-  const css = `body{font-family:Arial,sans-serif;margin:28px;color:#333;font-size:12px;}
-h1{font-size:17px;margin-bottom:3px;}
-.sub{color:#888;font-size:11px;margin-bottom:20px;}
-.zone-card{margin-bottom:24px;border:1.5px solid #ddd;border-radius:6px;overflow:hidden;page-break-inside:avoid;}
-.zone-hdr{padding:8px 14px;font-weight:bold;font-size:12px;border-bottom:1px solid #ddd;}
-.zone-body{padding:12px 14px;}
-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;}
-th{background:#f0f0f0;border:1px solid #ddd;padding:5px 10px;text-align:left;font-size:10px;color:#555;text-transform:uppercase;}
-td{border:1px solid #eee;padding:5px 10px;vertical-align:top;}
-tr:nth-child(even) td{background:#fafafa;}
-.topo{background:#f9f9f9;border:1px solid #eee;border-radius:4px;padding:8px 12px;font-size:11px;}
-.topo-title{font-size:9px;color:#aaa;text-transform:uppercase;margin-bottom:6px;letter-spacing:.05em;}
-.footer{margin-top:28px;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:8px;}
-@media print{.zone-card{page-break-inside:avoid;}}`;
 
-  // Rebuild data for export (read from nodes directly)
   const assigned = new Set();
   const zoneGroups = zones.map(z => {
     const zn = nodes.filter(n => nodeInZone(n, z));
@@ -2765,46 +3058,91 @@ tr:nth-child(even) td{background:#fafafa;}
   }).filter(g => g.nodes.length);
   const unassigned = nodes.filter(n => !assigned.has(n.id));
 
+  if(format==='csv'){
+    let csv='Зона,Устройство,Модель,IP,Маска,Шлюз,Примечание\n';
+    function addRows(label, list){
+      list.forEach(n=>{
+        const esc=s=>`"${(s||'').replace(/"/g,'""')}"`;
+        csv+=`${esc(label)},${esc(n.title)},${esc(n.sub1)},${esc(n.ip)},${esc(n.mask)},${esc(n.gw)},${esc(n.netNote)}\n`;
+      });
+    }
+    zoneGroups.forEach(({zone,nodes:zn})=>addRows(zone.label||'Зона',zn));
+    if(unassigned.length) addRows('Вне зон',unassigned);
+    dl(URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'})),'network-structure.csv');
+    return;
+  }
+
+  // HTML export
+  const css=`body{font-family:Arial,sans-serif;margin:28px;color:#333;font-size:12px;}
+h1{font-size:17px;margin-bottom:3px;}
+.sub{color:#888;font-size:11px;margin-bottom:20px;}
+.zone-card{margin-bottom:24px;border:1.5px solid #ddd;border-radius:6px;overflow:hidden;page-break-inside:avoid;}
+.zone-hdr{padding:8px 14px;font-weight:bold;font-size:12px;border-bottom:1px solid #ddd;display:flex;align-items:center;gap:8px;}
+.zone-body{padding:12px 14px;}
+table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;}
+th{background:#f0f0f0;border:1px solid #ddd;padding:5px 10px;text-align:left;font-size:10px;color:#555;text-transform:uppercase;}
+td{border:1px solid #eee;padding:5px 10px;vertical-align:top;}
+tr:nth-child(even) td{background:#fafafa;}
+.err{color:#ef4444;font-size:9px;}
+.badge-ext{display:inline-block;background:#f97316;color:#fff;border-radius:3px;padding:1px 5px;font-size:9px;font-weight:600;}
+.footer{margin-top:28px;font-size:10px;color:#bbb;border-top:1px solid #eee;padding-top:8px;}
+@media print{.zone-card{page-break-inside:avoid;}}`;
+
   function exportCard(label, color, nodeList){
     if(!nodeList.length) return '';
-    const sectionIds = new Set(nodeList.map(n => n.id));
-    const sectionEdges = edges.filter(e => sectionIds.has(e.from) || sectionIds.has(e.to))
-      .map(e => { const fn=nb(e.from),tn=nb(e.to); return fn&&tn?{e,fn,tn,internal:sectionIds.has(e.from)&&sectionIds.has(e.to)}:null; })
+    const sectionIds = new Set(nodeList.map(n=>n.id));
+    const sectionEdges = edges
+      .filter(e=>sectionIds.has(e.from)||sectionIds.has(e.to))
+      .map(e=>{const fn=nb(e.from),tn=nb(e.to);return fn&&tn?{e,fn,tn,internal:sectionIds.has(e.from)&&sectionIds.has(e.to)}:null;})
       .filter(Boolean);
 
-    const rows = nodeList.map(n => `<tr>
-      <td><b>${n.title}</b>${n.sub1?`<br><small style="color:#888">${n.sub1}</small>`:''}</td>
-      <td style="font-family:monospace">${n.ip||'—'}</td>
-      <td style="font-family:monospace">${n.mask||'—'}</td>
-      <td style="font-family:monospace">${n.gw||'—'}</td>
-      <td>${n.netNote||'—'}</td>
-    </tr>`).join('');
+    const rows = nodeList.map(n=>{
+      const ipErr = n.ip&&!_isValidIP(n.ip) ? '<span class="err">⚠ невалидный IP</span>' : '';
+      const gwErr = n.gw&&!_sameSubnet(n.ip,n.mask,n.gw) ? '<span class="err">⚠ шлюз вне подсети</span>' : '';
+      return `<tr>
+        <td><b>${n.title}</b>${n.sub1?`<br><small style="color:#888">${n.sub1}</small>`:''}</td>
+        <td style="font-family:monospace">${n.ip||'—'} ${ipErr}</td>
+        <td style="font-family:monospace">${n.mask||'—'}</td>
+        <td style="font-family:monospace">${n.gw||'—'} ${gwErr}</td>
+        <td>${n.netNote||'—'}</td>
+      </tr>`;
+    }).join('');
 
-    const topoRows = sectionEdges.map(({e,fn,tn,internal}) =>
-      `<div style="padding:2px 0">${internal?'↔':'↗'} ${fn.title} ── ${[e.label,e.cable].filter(Boolean).join(' · ')||'?'} ──▶ ${tn.title}${!internal?' (внешнее)':''}</div>`
-    ).join('');
+    const topoRows = sectionEdges.map(({e,fn,tn,internal})=>{
+      const proto=[e.label,e.cable].filter(Boolean).join(' · ')||'—';
+      return `<tr><td>${internal?'↔':'<span class="badge-ext">↗ внешнее</span>'}</td>
+        <td>${fn.title}</td><td style="color:#999">${proto}</td><td>${tn.title}</td></tr>`;
+    }).join('');
 
     return `<div class="zone-card">
-      <div class="zone-hdr" style="background:${color}18;border-left:3px solid ${color};">${label}</div>
+      <div class="zone-hdr" style="background:${color}18;border-left:3px solid ${color};">
+        <span style="width:10px;height:10px;border-radius:50%;background:${color};display:inline-block;"></span>
+        ${label} <span style="color:#aaa;font-weight:normal;font-size:10px;margin-left:4px;">${nodeList.length} устр.</span>
+      </div>
       <div class="zone-body">
         <table><thead><tr><th>Устройство</th><th>IP</th><th>Маска</th><th>Шлюз</th><th>Примечание</th></tr></thead>
         <tbody>${rows}</tbody></table>
-        ${sectionEdges.length?`<div class="topo"><div class="topo-title">Топология</div>${topoRows}</div>`:''}
-      </div>
-    </div>`;
+        ${sectionEdges.length?`<table style="margin-top:8px;"><thead><tr><th>Тип</th><th>От</th><th>Протокол</th><th>К</th></tr></thead><tbody>${topoRows}</tbody></table>`:''}
+      </div></div>`;
   }
 
-  let cards = zoneGroups.map(({zone,nodes:zn})=>exportCard(zone.label||'Зона',zone.color||'#4a9eff',zn)).join('');
-  if(unassigned.length) cards += exportCard('Вне зон','#888',unassigned);
+  let cards=zoneGroups.map(({zone,nodes:zn})=>exportCard(zone.label||'Зона',zone.color||'#4a9eff',zn)).join('');
+  if(unassigned.length) cards+=exportCard('Вне зон','#888',unassigned);
+  const errCount=nodes.filter(n=>n.ip&&!_isValidIP(n.ip)).length;
+  const errNote=errCount?`<p style="color:#ef4444;font-size:11px;">⚠ Обнаружено невалидных IP: ${errCount}</p>`:'';
 
-  const html = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">
+  const html=`<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">
 <title>Структура сети — ${title}</title><style>${css}</style></head><body>
 <h1>🌐 Структура сети</h1>
-<p class="sub">${title} &nbsp;·&nbsp; ${date} &nbsp;·&nbsp; ${nodes.length} устройств, ${zones.length} зон</p>
-${cards}
-<div class="footer">© Concept Store 2026 &nbsp;·&nbsp; Show Signal Flow ${APP_VERSION}</div>
+<p class="sub">${title} · ${date} · ${nodes.length} устройств, ${zones.length} зон</p>
+${errNote}${cards}
+<div class="footer">© Concept Store 2026 · Show Signal Flow ${APP_VERSION}</div>
 </body></html>`;
   dl(URL.createObjectURL(new Blob([html],{type:'text/html'})),'network-structure.html');
+}
+
+function printNetTable(){
+  exportNetTable('html');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3034,8 +3372,8 @@ function rHistory(){
   }).join('');
 
   // Update undo/redo button disabled state
-  const undoBtn = document.querySelector('.tbtn[onclick="undo()"]');
-  const redoBtn = document.querySelector('.tbtn[onclick="redo()"]');
+  const undoBtn = document.getElementById('btn-undo') || document.querySelector('.tbtn[onclick="undo()"]');
+  const redoBtn = document.getElementById('btn-redo') || document.querySelector('.tbtn[onclick="redo()"]');
   if(undoBtn) undoBtn.disabled = undoStack.length === 0;
   if(redoBtn) redoBtn.disabled = redoStack.length === 0;
 }
@@ -3071,6 +3409,17 @@ function toggleMinimap(){
   if(btn) btn.classList.toggle('active',mmVisible);
   if(mmVisible) rMinimap();
 }
+
+function toggleMoreMenu(){
+  const m=document.getElementById('more-menu');
+  const btn=document.getElementById('btn-more');
+  if(m.style.display==='block'){ m.style.display='none'; return; }
+  const r=btn.getBoundingClientRect();
+  m.style.left=r.left+'px';
+  m.style.top=(r.bottom+4)+'px';
+  m.style.display='block';
+}
+function hideMoreMenu(){ document.getElementById('more-menu').style.display='none'; }
 
 function rMinimap(){
   if(!mmVisible) return;
