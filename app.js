@@ -2779,6 +2779,314 @@ let _netZoneFilter = '';
 let _netShowTopo = true;
 let _netExportMenuOpen = false;
 
+// ══════════════════════════════════════════════════════════
+// AUTO-NET: профили протоколов шоу-сетей
+// ══════════════════════════════════════════════════════════
+//
+// Источники стандартов:
+//  ArtNet   — 2.x.x.x/8 (исторически) или 10.x.x.x/8 (современно).
+//             Art-Net 4 Spec §4: "Primary network: 10.x.x.x"
+//             Вся световая сеть — одна большая /8, чтобы устройства
+//             видели друг друга broadcast'ом (255.0.0.0).
+//
+//  sACN     — обычно сосуществует с ArtNet на той же подсети,
+//             multicast 239.255.x.x задаётся автоматически контроллером.
+//
+//  NDI      — требует managed сети, рекомендованный диапазон 192.168.10.x/24
+//             или выделенный VLAN. Multicast: 224.0.0.x (mDNS Bonjour).
+//             Требует QoS и IGMP Snooping на коммутаторах.
+//
+//  Dante    — ВСЕГДА на отдельной подсети от остального трафика.
+//             Primary: 192.168.20.x/24, Redundant: 192.168.21.x/24.
+//             Dante Controller распределяет адреса автоматически через DHCP
+//             или статика на 169.254.x.x (link-local).
+//
+//  OSC/Control — 192.168.1.x/24 — стандартный диапазон для управляющих ПК
+//             (QLab, TouchDesigner, Medialon, Crestron, ETC Unison).
+//
+//  Intercom — 192.168.50.x/24 (Riedel, Clear-Com FreeSpeak II и др.).
+//
+//  Timecode/PTP — сосуществует с другими, требует PTPv2 (IEEE 1588).
+//
+const _NET_PROFILES = [
+  {
+    id: 'artnet',
+    name: 'ArtNet / sACN — Свет, DMX',
+    // Art-Net 4 Spec §4: modern standard 10.x.x.x/8 (legacy: 2.x.x.x/8).
+    // Вся световая сеть — одна /8 чтобы все видели друг друга через broadcast.
+    // GrandMA3 по умолчанию: 10.x.x.x; ETC EOS поддерживает оба стандарта.
+    // sACN (E1.31) сосуществует в той же подсети, multicast 239.255.x.x.
+    desc: 'GrandMA2/3, ETC EOS/Ion, Avolites, ChamSys MQ, Hog, DMX-ноды, Enttec, лазеры, LED',
+    subnet: '10.0.0',
+    mask: '/8',
+    maskDot: '255.0.0.0',
+    gw: '10.0.0.1',
+    ipStart: 10,
+    color: '#f59e0b',
+    kw: ['artnet','arnet','dmx','свет','light','lighting','пульт света','световой',
+         'grandma','grand ma','ma2','ma3','eos','ion','avolites','chamsys','hog','hog4',
+         'cobra','enttec','dmx node','artnet node','dmxking','lumenradio','lmr',
+         'led','pixel','пиксель','strobe','строб','laser','лазер','beam','wash',
+         'follow spot','followspot','dimmer','диммер','driver','color','colour',
+         'moving head','moving light','fixture','прибор']
+  },
+  {
+    id: 'ndi',
+    name: 'NDI / Video — Видео',
+    // NDI требует выделенного Гигабит VLAN (mDNS/Bonjour для discovery).
+    // ~125 Мбит/с на 1080p60 поток. Если несколько подсетей — нужен NDI Discovery Server.
+    // Resolume Arena, Disguise gx/rx, Watchout 6+, Vizrt TriCaster — native NDI.
+    desc: 'Resolume, Disguise, Watchout, Pandora\'s Box, NDI-камеры, видеосерверы, проекторы',
+    subnet: '192.168.10',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '192.168.10.1',
+    ipStart: 10,
+    color: '#06b6d4',
+    kw: ['ndi','видео','video','камера','camera','capture','захват','stream','стрим',
+         'resolume','disguise','watchout','pandora','notch','vj','vjing',
+         'pixelmapper','pixel mapper','media server','медиасервер',
+         'projection','проектор','projector','screen','экран','led wall','led экран',
+         'visual','visuals','hybe','arkaos','madmapper','smode','tricaster',
+         'switcher','видеомикшер','vmix','obs','encoder','кодер']
+  },
+  {
+    id: 'dante',
+    name: 'Dante / AES67 — Аудио',
+    // Audinate: первичная сеть — любая приватная /24, обычно DHCP.
+    // Резервная сеть: 172.31.x.x/16 (официальный fallback Audinate при отсутствии DHCP).
+    // Link-local fallback на первичной: 169.254.x.x. Требует managed switch с QoS.
+    // Yamaha CL/QL — встроенный Dante; Allen&Heath dLive — Dante card; DiGiCo SD — Dante option.
+    desc: 'Yamaha CL/QL, Allen&Heath dLive/SQ, DiGiCo SD, Midas PRO/M32, Avid S6L, QSC, BSS',
+    subnet: '192.168.20',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '192.168.20.1',
+    ipStart: 10,
+    color: '#10b981',
+    kw: ['dante','аудио','audio','звук','sound','звуковой','микшер','mixer',
+         'yamaha','allen heath','allen & heath','a&h','dLive','dlive','sq','midas',
+         'digico','behringer','avid','protools','pro tools','s6l','venue',
+         'qsc','bss','crown','iem','monitor','мониторы','мониторы',
+         'amplifier','усилитель','amp','speaker','sub','сабвуфер',
+         'delay tower','sidefill','frontfill','pa','stage box','stagebox',
+         'stagerak','interface','di box','rack','aes67','aes 67','ravenna',
+         'wordclock','word clock','dante virtual soundcard']
+  },
+  {
+    id: 'osc',
+    name: 'OSC / Control — Управление',
+    // OSC — application-layer UDP, нет стандартной подсети.
+    // QLab: порт 53000 (входящий), 53001 (исходящий).
+    // TouchDesigner OSC In CHOP: порт 7000 по умолчанию.
+    // Рекомендация: делить VLAN с пультом или отдельная /24.
+    desc: 'QLab, TouchDesigner, Medialon, Crestron, ETC Unison, Pharos, ПК режиссёра',
+    subnet: '192.168.1',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '192.168.1.1',
+    ipStart: 10,
+    color: '#8b5cf6',
+    kw: ['osc','qlab','touchdesigner','управление','control','controller',
+         'автоматика','шоу-контроллер','show control','medialon','crestron','unison',
+         'pharos','pathway','компьютер','pc','ноутбук','laptop','сервер','server',
+         'tablet','планшет','ipad','app','приложение','robe rz','rz','timecode',
+         'ltc','mtc','smpte','sync','синхро','stage manager','sm']
+  },
+  {
+    id: 'intercom',
+    name: 'Intercom — Интерком',
+    // Riedel MediorNet, Clear-Com FreeSpeak II, Pliant CrewCom — IP intercom.
+    // Нет стандартной подсети, 192.168.50.x/24 — распространённая практика.
+    desc: 'Riedel, Clear-Com FreeSpeak II, Pliant CrewCom, матрицы интерком',
+    subnet: '192.168.50',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '192.168.50.1',
+    ipStart: 10,
+    color: '#ec4899',
+    kw: ['intercom','интерком','riedel','mediornet','clearcom','clear-com','freespeak',
+         'pliant','crewcom','beltpack','пояс','headset','гарнитура','party line','matrix',
+         'bolero','teatrix','связь']
+  },
+  {
+    id: 'general',
+    name: 'Прочие устройства',
+    desc: 'Устройства без явного протокола',
+    subnet: '192.168.100',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '192.168.100.1',
+    ipStart: 10,
+    color: '#6b7280',
+    kw: [] // fallback — всё остальное
+  }
+];
+
+function _detectNodeProfile(n){
+  const text = ((n.devType||'') + ' ' + (n.title||'') + ' ' + (n.sub1||'')).toLowerCase();
+  // приоритет: artnet > dante > ndi > osc > intercom > general
+  for(const p of _NET_PROFILES){
+    if(!p.kw.length) continue;
+    if(p.kw.some(k => text.includes(k))) return p;
+  }
+  return _NET_PROFILES.find(p => p.id === 'general');
+}
+
+function _ipFromProfile(profile, idx){
+  const oct = profile.ipStart + idx;
+  if(profile.mask === '/8'){
+    // ArtNet /8: пользователь выбрал 10.x или 2.x (legacy)
+    const base = (window._anArtnetBase === '2') ? '2' : '10';
+    const hi   = Math.floor(oct / 254);
+    const lo   = (oct % 254) + 1;
+    return `${base}.${hi}.0.${lo}`;
+  }
+  // /24: subnet.xxx
+  if(oct > 253){
+    // переполнение — переходим на следующий блок /24
+    const parts = profile.subnet.split('.');
+    const newThird = (parseInt(parts[2],10) + Math.floor(oct/254)) % 256;
+    return `${parts[0]}.${parts[1]}.${newThird}.${(oct%254)+1}`;
+  }
+  return `${profile.subnet}.${oct}`;
+}
+
+// Главная функция анализа — строит план без применения
+function _analyzeNet(){
+  const counters = {};
+  _NET_PROFILES.forEach(p => counters[p.id] = 0);
+
+  const plan   = []; // {node, profile, ip, mask, gw, hasExisting}
+  const skip   = []; // уже настроенные
+
+  nodes.forEach(n => {
+    const profile = _detectNodeProfile(n);
+    const hasIp   = !!(n.netIP && n.netIP.trim());
+    if(hasIp){
+      skip.push({node: n, profile});
+      return;
+    }
+    const idx = counters[profile.id]++;
+    plan.push({
+      node: n,
+      profile,
+      ip:   _ipFromProfile(profile, idx),
+      mask: profile.mask,
+      gw:   profile.gw,
+      hasExisting: false
+    });
+  });
+
+  return {plan, skip};
+}
+
+// Показать диалог авто-сети
+function showAutoNetDialog(){
+  window._anArtnetBase = window._anArtnetBase || '10';
+  const {plan, skip} = _analyzeNet();
+  if(!nodes.length){
+    alert('Нет устройств в схеме. Добавьте ноды и зоны сначала.');
+    return;
+  }
+
+  // Группируем по профилю для отображения
+  const byProfile = {};
+  _NET_PROFILES.forEach(p => byProfile[p.id] = []);
+  plan.forEach(item => byProfile[item.profile.id].push(item));
+
+  let sectionsHTML = '';
+  _NET_PROFILES.forEach(p => {
+    const items = byProfile[p.id];
+    if(!items.length) return;
+    const rows = items.map((item,i) => {
+      const z = zones.find(z => nodeInZone(item.node, z));
+      const zoneName = z ? `<span style="color:#666;font-size:10px;"> · ${z.title||'Зона'}</span>` : '';
+      return `<div class="an-row">
+        <span class="an-dot" style="background:${p.color}"></span>
+        <span class="an-name">${item.node.title||item.node.id}${zoneName}</span>
+        <span class="an-ip">${item.ip}</span>
+        <span class="an-mask">${item.mask}</span>
+      </div>`;
+    }).join('');
+    sectionsHTML += `
+      <div class="an-section">
+        <div class="an-section-hdr" style="border-left:3px solid ${p.color}">
+          <span style="color:${p.color};font-weight:600;">${p.name}</span>
+          <span class="an-section-badge">${items.length} устр.</span>
+          <span style="color:#555;font-size:10px;"> · подсеть ${p.subnet}.0${p.mask}</span>
+        </div>
+        <div class="an-section-desc">${p.desc}${
+          p.id==='dante' ? `<span style="color:#10b981;opacity:.7;"> · Резервная сеть Dante (redundant): 172.31.x.x/16 — настраивается вручную</span>` :
+          p.id==='artnet' ? `<span style="color:#f59e0b;opacity:.7;"> · sACN multicast (239.255.x.x) назначается контроллером автоматически</span>` : ''
+        }</div>
+        ${rows}
+      </div>`;
+  });
+
+  if(!plan.length && skip.length){
+    sectionsHTML = `<div style="text-align:center;padding:20px;color:#aaa;font-size:12px;">
+      Все устройства (${skip.length}) уже имеют IP-адреса.<br>
+      Используй «Переназначить всё», чтобы перестроить сеть с нуля.
+    </div>`;
+  }
+
+  const skipNote = skip.length
+    ? `<div class="an-skip-note">⚠ ${skip.length} устр. уже имеют IP и будут <b>пропущены</b>. Используй «Переназначить всё» для полного сброса.</div>`
+    : '';
+
+  document.getElementById('autonet-popup').style.display = 'flex';
+  document.getElementById('autonet-body').innerHTML = `
+    <div class="an-summary">
+      Будет назначено: <b>${plan.length}</b> устройств &nbsp;·&nbsp;
+      Пропущено (уже настроено): <b>${skip.length}</b>
+    </div>
+    ${skipNote}
+    <div class="an-sections">${sectionsHTML}</div>`;
+
+  // сохраняем план для кнопок
+  window._autoNetPlan = {plan, skip};
+}
+
+function applyAutoNet(overrideAll){
+  const {plan, skip} = window._autoNetPlan || {};
+  if(!plan) return;
+
+  let toApply = [...plan];
+  if(overrideAll){
+    // переназначаем и уже настроенные
+    const {plan: fullPlan} = (() => {
+      const counters = {};
+      _NET_PROFILES.forEach(p => counters[p.id] = 0);
+      const fp = nodes.map(n => {
+        const profile = _detectNodeProfile(n);
+        const idx = counters[profile.id]++;
+        return {node: n, profile, ip: _ipFromProfile(profile, idx), mask: profile.mask, gw: profile.gw};
+      });
+      return {plan: fp};
+    })();
+    toApply = fullPlan;
+  }
+
+  snapshot('Авто-сеть: назначить IP');
+  toApply.forEach(item => {
+    item.node.netIP   = item.ip;
+    item.node.netMask = item.mask;
+    item.node.netGW   = item.gw;
+  });
+  closeAutoNetDialog();
+  renderNetPanel();
+  log(`Авто-сеть: назначено ${toApply.length} IP-адресов`);
+}
+
+function closeAutoNetDialog(){
+  document.getElementById('autonet-popup').style.display = 'none';
+}
+
+function log(msg){
+  console.log('[ShowFlow]', msg);
+}
+
 function showNetPanel(){
   document.getElementById('cw').style.display = 'none';
   document.getElementById('net-panel').style.display = 'block';
@@ -3035,6 +3343,7 @@ function renderNetPanel(){
         Топология
       </label>
       <span class="net-stats">${nodes.length} устр. · ${zones.length} зон</span>
+      <button class="tbtn" onclick="showAutoNetDialog()" title="Автоматически назначить IP по типам устройств" style="margin-left:auto;background:#f59e0b22;border-color:#f59e0b66;color:#f59e0b;">🔧 Авто-сеть</button>
     </div>
     <div class="net-content">${cards}</div>`;
 }
