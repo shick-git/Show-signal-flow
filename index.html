@@ -1,0 +1,1426 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Show Signal Flow</title>
+<style>
+:root{
+  --bg-base:#1c1c1c;
+  --bg-surface:#2a2a2a;
+  --bg-hover:#363636;
+  --bg-panel:#111;
+  --border:#444;
+  --border-subtle:#2e2e2e;
+  --border-mid:#3a3a3a;
+  --accent:#0066cc;
+  --accent-bright:#0077ff;
+  --accent-bg:rgba(0,102,204,0.15);
+  --text-primary:#d8d8d8;
+  --text-muted:#888;
+  --text-dim:#555;
+  --danger-bg:#5a1010;
+  --danger-border:#aa0000;
+  --popup-bg:#fff;
+  --popup-border:#ddd;
+  --input-focus-shadow:0 0 0 2px rgba(0,102,204,0.22);
+  --radius-sm:3px;
+  --radius-md:5px;
+  --transition-fast:.12s ease;
+  --transition-std:.18s ease;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;background:#d0d0d0;overflow:hidden;user-select:none;}
+
+/* ── TOOLBAR ── */
+#tb{
+  position:fixed;top:0;left:0;right:0;height:72px;z-index:100;
+  background:var(--bg-base);color:#fff;
+  display:flex;flex-direction:column;
+  border-bottom:1px solid #333;
+}
+.tb-row{
+  display:flex;align-items:center;
+  padding:0 10px;gap:4px;
+  height:36px;flex-shrink:0;
+}
+.tb-row:first-child{ border-bottom:1px solid var(--border-subtle); }
+.tb-row .spacer{ flex:1; }
+#tb-logo{
+  font-size:12px;font-weight:bold;white-space:nowrap;
+  margin-right:4px;color:#fff;letter-spacing:0.5px;
+}
+.sep{width:1px;height:20px;background:var(--border-mid);margin:0 3px;flex-shrink:0;}
+.tbtn{
+  background:var(--bg-surface);border:1px solid var(--border);color:var(--text-primary);
+  padding:3px 8px;border-radius:var(--radius-sm);cursor:pointer;font-size:11px;
+  white-space:nowrap;transition:background var(--transition-fast), color var(--transition-fast);
+  line-height:1.4;
+}
+.tbtn:hover{background:var(--bg-hover);color:#fff;}
+.tbtn:active{transform:scale(0.96);}
+.tbtn.active{background:#0055aa;border-color:var(--accent-bright);color:#fff;}
+.tbtn.active:hover{background:#0066cc;}
+.tbtn.danger{background:var(--danger-bg);border-color:var(--danger-border);color:#faa;}
+.tbtn.danger:hover{background:#7a1515;color:#fff;}
+.tbtn:disabled{opacity:0.35;cursor:not-allowed;pointer-events:none;}
+kbd{
+  background:#333;border:1px solid #666;border-radius:2px;
+  padding:1px 4px;font-size:9px;color:#aaa;margin-left:2px;
+}
+#hint-bar{
+  position:fixed;bottom:0;left:0;right:0;height:22px;z-index:100;
+  background:#111;color:var(--text-dim);font-size:10px;
+  display:flex;align-items:center;padding:0 12px;gap:0;
+}
+#hint-bar span{white-space:nowrap;padding:0 10px;border-right:1px solid #222;}
+#hint-bar span:first-child{padding-left:0;min-width:120px;color:#999;}
+#hint-bar #hb-info{color:#6a9eff;border-right:1px solid #222;}
+#hint-bar #hb-info:empty{display:none;}
+#hint-bar #ver-bar{margin-left:auto;padding-right:0;border-right:none;color:#3a3a3a;}
+#hint-bar .hb-static{color:#3d3d3d;}
+
+/* ── CANVAS ── */
+#cw{
+  position:fixed;top:72px;left:0;right:0;bottom:22px;
+  overflow:hidden;background:#f8f8f8;
+  background-image:radial-gradient(circle,#ccc 1px,transparent 1px);
+  background-size:24px 24px;
+}
+#diagram{display:block;width:100%;height:100%;cursor:default;}
+body.panning #diagram, body.panning .node-group{cursor:grabbing !important;}
+body.space-held .node-group{cursor:grab;}
+body.space-held #diagram{cursor:grab;}
+
+/* ── NODE STYLES ── */
+.node-rect{fill:#fff;stroke:#222;stroke-width:1.5;}
+.node-rect.output{fill:#efefef;}
+.node-rect.highlight{fill:#fffbe6;stroke-width:2.5;}
+.node-rect.audio { fill: #e8f4ff; stroke: #1a6aaa; stroke-width: 1.5; }
+.node-rect.selected { stroke: #0066cc; stroke-width: 2.5; }
+
+/* rubber-band selection */
+#sel-rect {
+  fill: rgba(0,102,204,0.10);
+  stroke: #0066cc;
+  stroke-width: 1.5;
+  stroke-dasharray: 5,3;
+  pointer-events: none;
+  display: none;
+}
+
+/* sticky notes */
+.note-group { cursor: grab; }
+.note-group:active { cursor: grabbing; }
+.note-rect { stroke: #bbb; stroke-width: 1; }
+.note-text { font-family: Arial,sans-serif; font-size: 11px; fill: #444; pointer-events: none; }
+.note-resize { fill: #888; cursor: se-resize; opacity: 0; transition: opacity .15s; }
+.note-group:hover .note-resize { opacity: 0.6; }
+
+body.connect-mode { cursor: crosshair; }
+body.drop-edge-mode .node-group:active { cursor: copy; }
+body.connect-mode .node-group { cursor: crosshair; }
+.node-rect.search-match { stroke: #ff9900 !important; stroke-width: 2.5 !important; }
+.node-rect.search-current { stroke: #ff4400 !important; stroke-width: 3.5 !important; }
+
+/* alignment guides */
+.guide { stroke: #ff3333; stroke-width: 1; pointer-events: none; }
+.node-title{
+  font-family:Arial,sans-serif;font-size:12px;font-weight:bold;
+  fill:#000;text-anchor:middle;dominant-baseline:middle;pointer-events:none;
+}
+.node-sub{
+  font-family:Arial,sans-serif;font-size:10px;
+  fill:#555;text-anchor:middle;dominant-baseline:middle;pointer-events:none;
+}
+.node-group{cursor:grab;}
+.node-group:active{cursor:grabbing;}
+.resize-handle{fill:#0066cc;cursor:se-resize;opacity:0;transition:opacity .15s;}
+.node-group:hover .resize-handle{opacity:0.7;}
+
+/* ── EDGE STYLES ── */
+.edge{fill:none;stroke:#222;stroke-width:1.5;}
+.edge.dashed{stroke-dasharray:6,3;}
+.edge.selected{stroke:#0066cc;stroke-width:2.5;}
+.edge-hit{fill:none;stroke:transparent;stroke-width:14;cursor:pointer;}
+.edge-lbl-bg{fill:#fff;}
+.edge-lbl{
+  font-family:Arial,sans-serif;font-size:9px;
+  fill:#333;text-anchor:middle;dominant-baseline:middle;pointer-events:none;
+}
+.waypoint{fill:#fff;stroke:#0066cc;stroke-width:1.5;cursor:move;}
+.edge-drop{stroke:#4a9eff !important;stroke-width:3 !important;stroke-dasharray:none !important;}
+
+/* ── TC BUS ── */
+.tc-rail{fill:none;stroke:#333;stroke-width:2;stroke-dasharray:10,5;}
+.tc-rail.tc-drop{stroke:#ff9900;stroke-width:3;stroke-dasharray:none;}
+.tc-tap{fill:none;stroke:#888;stroke-width:1.2;stroke-dasharray:4,3;}
+.tc-tap.tc-drop{stroke:#ff9900;stroke-width:2;}
+.tc-lbl{font-family:Arial,sans-serif;font-size:9px;fill:#888;text-anchor:middle;}
+.tc-rail-lbl{font-family:Arial,sans-serif;font-size:10px;font-weight:bold;fill:#555;}
+.tc-drag{cursor:ns-resize;}
+
+/* ── CONNECT MODE ── */
+body.connect-mode .node-group{cursor:crosshair;}
+body.connect-mode .node-group .node-rect{stroke:#0099ff;stroke-width:1.5;stroke-dasharray:4,3;}
+body.connect-mode .node-group{cursor:crosshair;}
+.connect-preview{fill:none;stroke:#0066cc;stroke-width:1.5;stroke-dasharray:5,3;pointer-events:none;}
+
+/* ── POPUPS ── */
+.popup{
+  position:fixed;background:#fff;border:1.5px solid #444;
+  border-radius:5px;padding:0;z-index:300;
+  box-shadow:0 6px 20px rgba(0,0,0,.22);min-width:240px;display:none;
+  user-select:none;
+}
+.popup-header{
+  display:flex;align-items:center;justify-content:space-between;
+  background:#222;color:#ccc;border-radius:4px 4px 0 0;
+  padding:7px 10px;cursor:move;font-size:11px;
+  text-transform:uppercase;letter-spacing:.06em;font-weight:bold;
+}
+.popup-header .close-btn{
+  background:none;border:none;color:#888;cursor:pointer;
+  font-size:14px;padding:0 2px;line-height:1;
+}
+.popup-header .close-btn:hover{color:#fff;}
+@keyframes popup-in{
+  from{opacity:0;transform:translateY(5px) scale(0.99);}
+  to{opacity:1;transform:translateY(0) scale(1);}
+}
+.popup{animation:popup-in var(--transition-fast);}
+.popup-body{padding:12px;user-select:text;max-height:calc(100vh - 110px);overflow-y:auto;}
+.popup-body::-webkit-scrollbar{width:5px;}
+.popup-body::-webkit-scrollbar-thumb{background:#bbb;border-radius:3px;}
+.popup-body label{
+  font-size:10px;color:var(--text-dim);display:block;
+  margin-bottom:3px;margin-top:8px;user-select:none;font-weight:600;
+  text-transform:uppercase;letter-spacing:.04em;
+}
+.popup-body label:first-of-type{margin-top:0;}
+.popup-body input,.popup-body select,.popup-body textarea{
+  display:block;width:100%;border:1px solid #ccc;border-radius:var(--radius-sm);
+  padding:5px 8px;font-size:12px;font-family:Arial;
+  user-select:text;pointer-events:auto;cursor:text;
+  transition:border-color var(--transition-fast), box-shadow var(--transition-fast);
+  outline:none;
+}
+.popup-body input:focus,.popup-body select:focus,.popup-body textarea:focus{
+  border-color:var(--accent);box-shadow:var(--input-focus-shadow);
+}
+.popup-body select{cursor:pointer;}
+.popup-body textarea{resize:vertical;min-height:44px;}
+.popup-body .row{display:flex;gap:6px;align-items:center;margin-top:6px;}
+.popup-body .row label{margin:0;flex:1;}
+.popup-body .btns{display:flex;gap:6px;margin-top:12px;}
+.popup-body button{
+  flex:1;padding:6px 8px;font-size:11px;cursor:pointer;
+  border-radius:var(--radius-sm);border:1px solid #ccc;background:#f0f0f0;
+  user-select:none;transition:background var(--transition-fast), box-shadow var(--transition-fast);
+  font-weight:500;
+}
+.popup-body button:hover{background:#e0e0e0;box-shadow:0 1px 3px rgba(0,0,0,.1);}
+.popup-body button:active{transform:scale(0.97);}
+.popup-body button.ok{background:#1a1a1a;color:#fff;border-color:#111;}
+.popup-body button.ok:hover{background:#2a2a2a;}
+.popup-body button.del{background:#b00;color:#fff;border-color:#900;}
+.popup-body button.del:hover{background:#c00;}
+.chk{display:flex;align-items:center;gap:6px;margin-top:7px;font-size:11px;color:#444;cursor:pointer;}
+.chk input{width:auto;margin:0;}
+
+/* ── WELCOME SCREEN ── */
+#welcome{
+  position:fixed;inset:0;z-index:500;
+  background:rgba(10,10,10,0.82);
+  display:flex;align-items:center;justify-content:center;
+  backdrop-filter:blur(3px);
+}
+#welcome-box{
+  background:#1c1c1c;border:1px solid #333;border-radius:10px;
+  padding:40px 48px;text-align:center;color:#eee;
+  max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.6);
+}
+#welcome-box h2{
+  font-size:20px;font-weight:bold;margin-bottom:6px;
+  color:#fff;letter-spacing:-.01em;
+}
+#welcome-box p{font-size:12px;color:#888;margin-bottom:28px;line-height:1.6;}
+#welcome-box .wbtns{display:flex;flex-direction:column;gap:10px;}
+#welcome-box .wbtn{
+  padding:11px 20px;border-radius:5px;cursor:pointer;font-size:13px;
+  border:1px solid #444;background:#2a2a2a;color:#ddd;transition:background .15s;
+}
+#welcome-box .wbtn:hover{background:#333;}
+#welcome-box .wbtn.primary{background:#0a3a0a;border-color:#1a6a1a;color:#8f8;}
+#welcome-box .wbtn.primary:hover{background:#0d4a0d;}
+#welcome-box .logo{font-size:11px;color:#444;margin-top:24px;}
+
+/* ── MINIMAP ── */
+#mm{
+  position:fixed;bottom:66px;right:8px;z-index:95;
+  background:rgba(255,255,255,0.97);border:1px solid #ccc;
+  border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,0.18);
+  overflow:hidden;user-select:none;
+}
+#mm-hdr{
+  background:#1c1c1c;color:#888;font-size:9px;
+  padding:3px 8px;display:flex;justify-content:space-between;
+  align-items:center;letter-spacing:.04em;text-transform:uppercase;
+}
+#mm-hdr button{background:none;border:none;color:#666;cursor:pointer;font-size:11px;padding:0 2px;line-height:1;}
+#mm-hdr button:hover{color:#fff;}
+#mm-svg{display:block;cursor:crosshair;}
+
+/* ── SIGNAL TABLE ── */
+.sig-table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:4px;}
+.sig-table th{background:#f0f0f0;border:1px solid #ddd;padding:4px 8px;text-align:left;font-size:10px;color:#555;text-transform:uppercase;white-space:nowrap;}
+.sig-table td{border:1px solid #eee;padding:4px 8px;vertical-align:top;}
+.sig-table tr:hover td{background:#f8f8ff;}
+.sig-table small{color:#888;font-size:9px;}
+.st-section{font-weight:bold;font-size:10px;color:#555;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.05em;}
+.st-section:first-child{margin-top:0;}
+
+/* ── NETWORK PANEL ── */
+#net-panel{
+  position:fixed;top:72px;left:0;right:0;bottom:22px;
+  background:#f4f5f7;z-index:82;display:none;
+  overflow-y:auto;
+  font-family:Arial,sans-serif;
+}
+body.dark-theme #net-panel{background:#111;color:#ccc;}
+.net-topbar{
+  position:sticky;top:0;z-index:10;
+  display:flex;align-items:center;gap:10px;
+  padding:9px 24px;
+  background:#1c1c1c;color:#ddd;
+  border-bottom:1px solid #333;
+  font-size:12px;
+}
+.net-topbar-title{font-weight:bold;font-size:13px;color:#fff;}
+.net-topbar-sub{color:#666;font-size:11px;}
+.net-back-btn{
+  display:flex;align-items:center;gap:5px;
+  background:#2a2a2a;border:1px solid #444;color:#ccc;
+  padding:4px 12px;border-radius:3px;cursor:pointer;
+  font-size:11px;font-family:Arial,sans-serif;
+}
+.net-back-btn:hover{background:#383838;color:#fff;}
+.net-content{padding:18px 24px;}
+.net-zone-card{margin-bottom:16px;border-radius:5px;overflow:hidden;
+  border:1px solid #ddd;background:#fff;}
+body.dark-theme .net-zone-card{background:#1a1a1a;border-color:#2e2e2e;}
+.net-zone-hdr{display:flex;align-items:center;gap:9px;padding:8px 14px;
+  font-size:12px;font-weight:bold;border-bottom:1px solid #eee;}
+body.dark-theme .net-zone-hdr{border-bottom-color:#2a2a2a;}
+.net-zone-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.net-zone-count{margin-left:auto;color:#aaa;font-size:10px;font-weight:normal;}
+.net-zone-body{padding:12px 14px;}
+.net-table{width:100%;border-collapse:collapse;font-size:11px;}
+.net-table th{background:#f5f5f5;border-bottom:1px solid #e0e0e0;
+  padding:5px 10px;text-align:left;font-size:10px;color:#777;
+  text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;}
+body.dark-theme .net-table th{background:#222;border-bottom-color:#333;color:#666;}
+.net-table td{border-bottom:1px solid #f0f0f0;padding:6px 10px;vertical-align:middle;}
+body.dark-theme .net-table td{border-bottom-color:#222;color:#bbb;}
+.net-table tbody tr:last-child td{border-bottom:none;}
+.net-table tbody tr:hover td{background:#f8f9ff;}
+body.dark-theme .net-table tbody tr:hover td{background:#1a2030;}
+.net-input{border:1px solid transparent;border-radius:3px;padding:3px 6px;
+  font-size:11px;width:100%;font-family:'Courier New',monospace;
+  background:transparent;color:inherit;min-width:0;box-sizing:border-box;}
+.net-input:hover{border-color:#ddd;background:#fff;}
+body.dark-theme .net-input:hover{border-color:#333;background:#111;}
+.net-input:focus{outline:none;border-color:#4a9eff;background:#fff;}
+body.dark-theme .net-input:focus{background:#0a1a2a;border-color:#4a9eff;}
+.net-input::placeholder{color:#ccc;}
+.net-dev-cell{display:flex;align-items:center;gap:8px;}
+.net-dev-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.net-dev-title{font-weight:600;font-size:11px;}
+.net-dev-sub{font-size:9px;color:#999;margin-top:1px;}
+.net-topo{margin-top:12px;border-top:1px solid #f0f0f0;padding-top:10px;}
+body.dark-theme .net-topo{border-top-color:#2a2a2a;}
+.net-topo-title{font-size:9px;color:#bbb;text-transform:uppercase;
+  letter-spacing:.06em;margin-bottom:6px;}
+.net-topo-item{display:flex;align-items:center;gap:6px;
+  padding:4px 0;border-bottom:1px solid #f5f5f5;font-size:11px;}
+body.dark-theme .net-topo-item{border-bottom-color:#222;}
+.net-topo-item:last-child{border-bottom:none;}
+.net-topo-from{color:#444;font-weight:500;}
+body.dark-theme .net-topo-from{color:#bbb;}
+.net-topo-to{color:#444;font-weight:500;}
+body.dark-theme .net-topo-to{color:#bbb;}
+.net-topo-proto{font-size:9px;color:#777;background:#f0f0f0;
+  border-radius:3px;padding:1px 7px;white-space:nowrap;}
+body.dark-theme .net-topo-proto{background:#252525;color:#888;}
+.net-topo-arrow{color:#ccc;font-size:12px;}
+.net-topo-ext{font-size:9px;color:#ccc;}
+
+/* ── HISTORY SIDEBAR ── */
+#hist-panel{
+  position:fixed;top:72px;right:0;bottom:22px;width:210px;z-index:80;
+  background:#1a1a1a;border-left:1px solid #2a2a2a;
+  transform:translateX(210px);transition:transform .22s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column;overflow:hidden;pointer-events:none;
+}
+#hist-panel.open{transform:translateX(0);pointer-events:auto;}
+#hist-hdr{
+  background:#111;color:#777;font-size:9px;padding:5px 8px;flex-shrink:0;
+  display:flex;justify-content:space-between;align-items:center;
+  letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid #2a2a2a;
+}
+#hist-hdr button{background:none;border:none;color:#555;cursor:pointer;font-size:12px;padding:0 2px;line-height:1;}
+#hist-hdr button:hover{color:#fff;}
+#hist-list{flex:1;overflow-y:auto;padding:4px 0;}
+#hist-list::-webkit-scrollbar{width:3px;}
+#hist-list::-webkit-scrollbar-track{background:#111;}
+#hist-list::-webkit-scrollbar-thumb{background:#333;border-radius:2px;}
+.hist-entry{
+  padding:5px 10px 5px 12px;font-size:10px;color:#777;
+  cursor:pointer;border-left:2px solid transparent;line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  transition:background var(--transition-fast), color var(--transition-fast);
+}
+.hist-entry:hover{background:#252525;color:#ccc;}
+.hist-entry.current{color:#fff;border-left-color:var(--accent);background:#172035;cursor:default;font-weight:600;}
+.hist-entry.future{color:#404040;}
+.hist-entry.future:hover{color:#666;}
+
+/* ── ZONES ── */
+.zone-group{cursor:grab;}
+.zone-group:active{cursor:grabbing;}
+.zone-rect{stroke-width:1.5;stroke-dasharray:7,4;}
+.zone-lbl-text{font-family:Arial,sans-serif;font-size:11px;font-weight:bold;pointer-events:none;}
+.zone-resize{fill:#0066cc;cursor:se-resize;opacity:0;transition:opacity .15s;}
+.zone-group:hover .zone-resize{opacity:0.45;}
+
+/* ── HELP POPUP ── */
+.help-section{font-size:10px;font-weight:bold;color:#555;text-transform:uppercase;
+  letter-spacing:.06em;margin:10px 0 5px;padding-bottom:3px;border-bottom:1px solid #eee;}
+.help-section:first-child{margin-top:0;}
+.help-row{display:flex;justify-content:space-between;align-items:baseline;
+  font-size:11px;padding:3px 0;border-bottom:1px solid #f5f5f5;gap:12px;}
+.help-row kbd{background:#f0f0f0;border:1px solid #ccc;border-radius:3px;
+  padding:1px 5px;font-size:10px;color:#333;white-space:nowrap;}
+.help-row span{color:#666;font-size:10px;text-align:right;}
+
+/* ── WELCOME TEMPLATES ── */
+#welcome-box .tpl-btns{display:flex;flex-direction:column;gap:6px;margin-top:10px;}
+#welcome-box .tpl-lbl{font-size:10px;color:#555;margin-top:14px;margin-bottom:2px;
+  text-transform:uppercase;letter-spacing:.05em;}
+#welcome-box .wbtn.tpl{background:#1a2a3a;border-color:#2a4a6a;color:#7af;font-size:12px;padding:9px 16px;}
+#welcome-box .wbtn.tpl:hover{background:#213347;}
+
+/* ── LEGEND ── */
+#legend{
+  position:fixed;bottom:22px;right:0;background:#fff;
+  border-top:1px solid #ddd;border-left:1px solid #ddd;
+  padding:8px 12px;font-size:10px;color:#555;z-index:90;
+  display:flex;gap:14px;align-items:center;
+}
+#legend span{display:flex;align-items:center;gap:5px;}
+
+/* ── DARK THEME ── */
+body.dark-theme #cw{
+  background:#1e1e1e;
+  background-image:radial-gradient(circle,#333 1px,transparent 1px);
+  background-size:24px 24px;
+}
+body.dark-theme .node-rect{fill:#2a2a2a;stroke:#555;}
+body.dark-theme .node-rect.output{fill:#222;stroke:#444;}
+body.dark-theme .node-rect.highlight{fill:#2a2818;stroke:#665500;}
+body.dark-theme .node-rect.audio{fill:#182030;stroke:#2a5a8a;}
+body.dark-theme .node-title{fill:#ddd;}
+body.dark-theme .node-sub{fill:#888;}
+body.dark-theme .edge{stroke:#666;}
+body.dark-theme .edge-lbl-bg{fill:#2a2a2a;}
+body.dark-theme .edge-lbl{fill:#aaa;}
+body.dark-theme .note-rect{stroke:#444;}
+body.dark-theme .note-text{fill:#aaa;}
+body.dark-theme .zone-lbl-text{opacity:0.9;}
+body.dark-theme .node-rect.selected{stroke:#5bb0ff;stroke-width:2.5;filter:drop-shadow(0 0 4px rgba(91,176,255,0.5));}
+body.dark-theme .edge.selected{stroke:#5bb0ff;stroke-width:2.5;}
+body.dark-theme #sel-rect{fill:rgba(91,176,255,0.08);stroke:#5bb0ff;}
+body.dark-theme .node-rect.search-match{stroke:#ffaa33 !important;stroke-width:2.5 !important;}
+body.dark-theme .node-rect.search-current{stroke:#ff6622 !important;stroke-width:3.5 !important;filter:drop-shadow(0 0 4px rgba(255,102,34,0.5));}
+body.dark-theme .waypoint{fill:#1a2a3a;stroke:#5bb0ff;}
+body.dark-theme .resize-handle{fill:#5bb0ff;}
+body.dark-theme .edge-drop{stroke:#5bb0ff !important;}
+body.dark-theme .tc-rail-lbl{fill:#999;}
+.cdt-item{display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);}
+.cdt-item:last-child{border-bottom:none;}
+.cdt-swatch{display:inline-block;width:14px;height:14px;border-radius:3px;flex-shrink:0;}
+.cdt-name{flex:1;font-size:12px;}
+.cdt-item button{background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px 4px;font-size:12px;}
+.cdt-item button:hover{color:var(--text);}
+.cdt-empty{color:var(--text-muted);font-size:12px;padding:4px 0;}
+body.dark-theme #legend{background:#1c1c1c;border-color:#333;color:#666;}
+body.dark-theme #hint-bar{background:#0a0a0a;}
+body.dark-theme #mm{background:rgba(20,20,20,0.97);border-color:#333;}
+body.dark-theme .sig-table th{background:#222;border-color:#333;color:#888;}
+body.dark-theme .sig-table td{border-color:#2a2a2a;color:#aaa;}
+body.dark-theme .sig-table tr:hover td{background:#1e2a3a;}
+</style>
+</head>
+<body>
+
+<!-- Welcome screen -->
+<div id="welcome">
+  <div id="welcome-box">
+    <h2>Show Signal Flow</h2>
+    <p>Редактор сигнальных схем для живых мероприятий.<br>Создай новый проект или открой существующий.</p>
+    <div class="wbtns">
+      <button class="wbtn primary" onclick="newProject()">＋ Пустой проект</button>
+      <button class="wbtn" onclick="fileOpen()">📂 Открыть проект (.ssfp)</button>
+    </div>
+    <div class="tpl-lbl">— или начни с шаблона —</div>
+    <div class="tpl-btns">
+      <button class="wbtn tpl" onclick="loadTemplateStandard()">Стандартный шоу-риг</button>
+      <button class="wbtn tpl" onclick="loadTemplateVideo()">Только видео</button>
+      <button class="wbtn tpl" onclick="loadTemplateAudio()">Только звук</button>
+    </div>
+    <div class="logo">© Concept Store 2026 · <span id="ver-welcome"></span></div>
+  </div>
+</div>
+
+<div id="tb">
+  <!-- Строка 1: Инструменты редактирования + зум -->
+  <div class="tb-row">
+    <span id="tb-logo">SHOW · SIGNAL FLOW</span>
+    <div class="sep"></div>
+    <button class="tbtn active" id="btn-tc" onclick="toggleTC()" title="Показать/скрыть Timecode Bus">⏱ TC Bus</button>
+    <button class="tbtn" onclick="addTCBus()" title="Добавить вторую/третью TC-шину">＋ TC</button>
+    <div class="sep"></div>
+    <button class="tbtn" id="btn-add" onclick="addNode()" title="Добавить ноду (устройство)">＋ Нода</button>
+    <button class="tbtn" id="btn-con" onclick="toggleConnect()" title="Режим связей — клик по портам нод (E)">⤳ Связь <kbd>E</kbd></button>
+    <button class="tbtn" onclick="addZone()" title="Добавить визуальную зону / группу устройств">☐ Зона</button>
+    <button class="tbtn" onclick="addNote()" title="Добавить текстовую заметку">📝 Заметка</button>
+    <button class="tbtn" id="btn-snap" onclick="toggleSnap()" title="Привязка к сетке 24px">⊞ Сетка</button>
+    <div class="sep"></div>
+    <button class="tbtn" onclick="undo()" title="Отменить (Ctrl+Z)">↩ Отмена <kbd>Z</kbd></button>
+    <button class="tbtn" onclick="redo()" title="Повторить (Ctrl+Y)">↪ Повтор <kbd>Y</kbd></button>
+    <button class="tbtn" onclick="openSearch()" title="Поиск по нодам (Ctrl+F)">🔍 Поиск</button>
+    <div class="spacer"></div>
+    <button class="tbtn" onclick="zoomOut()" title="Уменьшить масштаб">－</button>
+    <button class="tbtn" id="btn-zoom" onclick="zoomReset()" style="min-width:50px;text-align:center;" title="По размеру холста (Ctrl+0)">100%</button>
+    <button class="tbtn" onclick="zoomIn()" title="Увеличить масштаб">＋</button>
+  </div>
+  <!-- Строка 2: Просмотр + экспорт + файл -->
+  <div class="tb-row">
+    <button class="tbtn" onclick="showSignalTable()" title="Таблица сигналов и устройств">📊 Таблица</button>
+    <button class="tbtn" onclick="showNetPanel()" title="Структура сети — IP-адреса, маски, топология по зонам">🌐 Сеть</button>
+    <button class="tbtn" id="btn-mm" onclick="toggleMinimap()" title="Миникарта">🗺 Карта</button>
+    <button class="tbtn" id="btn-hist" onclick="toggleHistory()" title="История изменений">🕐 История</button>
+    <button class="tbtn" id="btn-theme" onclick="toggleDarkTheme()" title="Тёмная/светлая тема холста">🌙 Тема</button>
+    <button class="tbtn" onclick="openCustomTypes()" title="Управление кастомными типами устройств">＋ Тип</button>
+    <div class="sep"></div>
+    <button class="tbtn" onclick="exportSVG()" title="Экспорт в SVG">⬇ SVG</button>
+    <button class="tbtn" onclick="exportPNG()" title="Экспорт в PNG">⬇ PNG</button>
+    <button class="tbtn" onclick="printDiagram()" title="Печать / экспорт PDF">🖨 PDF</button>
+    <button class="tbtn" onclick="exportClientHTML()" title="Экспорт интерактивной схемы для клиента" style="background:#2a1a4a;border-color:#5a3a9a;">📤 Клиент</button>
+    <div class="spacer"></div>
+    <button class="tbtn" onclick="openHelp()" title="Горячие клавиши и справка">❓ Справка</button>
+    <div class="sep"></div>
+    <button class="tbtn danger" onclick="resetToWelcome()" title="Сброс к началу">↺ Сброс</button>
+    <button class="tbtn" onclick="fileOpen()" style="background:#0a2a4a;border-color:#1a5a9a;" title="Открыть проект (Ctrl+O)">📂 Открыть <kbd>O</kbd></button>
+    <button class="tbtn" id="btn-save" onclick="fileSave()" style="background:#0a3a0a;border-color:#1a6a1a;" title="Сохранить проект (Ctrl+S)">💾 Сохранить <kbd>S</kbd></button>
+  </div>
+</div>
+
+<div id="cw">
+  <svg id="diagram" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0,8 3,0 6" fill="#222"/>
+      </marker>
+      <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+        <polygon points="0 0,8 3,0 6" fill="#0066cc"/>
+      </marker>
+      <marker id="arr-sm" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
+        <polygon points="0 0,6 2.5,0 5" fill="#888"/>
+      </marker>
+    </defs>
+    <g id="zl"></g>
+    <g id="el"></g>
+    <g id="tl"></g>
+    <g id="xl"></g>
+    <g id="nl"></g>
+    <g id="gl"></g>
+    <rect id="sel-rect" x="0" y="0" width="0" height="0"/>
+    <line id="con-preview" class="connect-preview" x1="0" y1="0" x2="0" y2="0" style="display:none;pointer-events:none"/>
+  </svg>
+</div>
+
+<!-- History sidebar -->
+<div id="hist-panel">
+  <div id="hist-hdr">
+    <span>История</span>
+    <button onclick="toggleHistory()" title="Скрыть">✕</button>
+  </div>
+  <div id="hist-list"></div>
+</div>
+
+<!-- Minimap -->
+<div id="mm">
+  <div id="mm-hdr">
+    <span>Обзор</span>
+    <button onclick="toggleMinimap()" title="Скрыть">✕</button>
+  </div>
+  <svg id="mm-svg" width="180" height="120"></svg>
+</div>
+
+<div id="legend">
+  <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#222" stroke-width="1.5" marker-end="url(#arr)"/></svg>Медиасигнал</span>
+  <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#222" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/></svg>OSC / управление</span>
+  <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5" stroke="#333" stroke-width="2" stroke-dasharray="8,4"/></svg>Timecode Bus</span>
+</div>
+
+<div id="hint-bar">
+  <span id="hb-mode">Режим: Выбор</span>
+  <span id="hb-info"></span>
+  <span class="hb-static">Обвести — выделить · Shift+клик — добавить · Del — удалить</span>
+  <span class="hb-static">E — связи · V — выбор · Ctrl+A/C/V — всё/копировать/вставить</span>
+  <span class="hb-static">Space+drag — панорама · Ctrl+колесо — зум · Ctrl+0 — по размеру</span>
+  <span id="ver-bar">© Concept Store 2026</span>
+</div>
+
+<!-- Node editor popup -->
+<div class="popup" id="ned">
+  <div class="popup-header" onmousedown="startDragPopup(event,'ned')">
+    <span id="ne-popup-title">✏️ Редактировать ноду</span>
+    <button class="close-btn" onclick="cp('ned')">✕</button>
+  </div>
+  <div class="popup-body">
+    <label>Тип устройства</label>
+    <select id="ne-devtype" onchange="onDevTypeChange('ne')">
+      <option value="">Обычный</option>
+      <option value="video-server">Видеосервер</option>
+      <option value="touchdesigner">Сервер TouchDesigner</option>
+      <option value="audio-console">Звуковой пульт</option>
+      <option value="audio-interface">Звуковой интерфейс</option>
+      <option value="broadcast">Сервер трансляции</option>
+      <option value="timecode">Timecode Notebook</option>
+      <option value="led-processor">Видеопроцессор</option>
+      <option value="light-console">Световой пульт</option>
+      <option value="video-capture">Видео захват</option>
+    </select>
+    <div id="ne-vc-row" style="display:none;margin-top:4px;">
+      <label>Карта / устройство захвата</label>
+      <select id="ne-vc" onchange="onVCChange('ne')">
+        <option value="">— выбрать устройство —</option>
+        <optgroup label="⭐ Топ райдер">
+          <option value="Magewell Pro Capture HDMI 4K">Magewell Pro Capture HDMI 4K</option>
+          <option value="Blackmagic DeckLink 8K Pro">Blackmagic DeckLink 8K Pro</option>
+          <option value="AJA KONA 5">AJA KONA 5</option>
+          <option value="AJA Io X4">AJA Io X4</option>
+        </optgroup>
+        <optgroup label="Magewell">
+          <option value="Magewell Pro Capture HDMI 4K">Pro Capture HDMI 4K</option>
+          <option value="Magewell Pro Capture Dual HDMI">Pro Capture Dual HDMI</option>
+          <option value="Magewell USB Capture HDMI 4K Plus">USB Capture HDMI 4K Plus</option>
+        </optgroup>
+        <optgroup label="Blackmagic Design">
+          <option value="Blackmagic DeckLink 8K Pro">DeckLink 8K Pro</option>
+          <option value="Blackmagic DeckLink Quad HDMI Recorder">DeckLink Quad HDMI Recorder</option>
+          <option value="Blackmagic UltraStudio 4K Mini">UltraStudio 4K Mini</option>
+          <option value="Blackmagic Video Assist 12G">Video Assist 12G</option>
+        </optgroup>
+        <optgroup label="AJA">
+          <option value="AJA KONA 5">KONA 5</option>
+          <option value="AJA KONA HDMI">KONA HDMI</option>
+          <option value="AJA Io X4">Io X4</option>
+          <option value="AJA U-TAP HDMI">U-TAP HDMI</option>
+        </optgroup>
+        <optgroup label="Elgato">
+          <option value="Elgato 4K X">4K X</option>
+          <option value="Elgato 4K60 Pro MK.2">4K60 Pro MK.2</option>
+        </optgroup>
+        <optgroup label="Epiphan">
+          <option value="Epiphan Pearl-2">Pearl-2</option>
+          <option value="Epiphan AV.io 4K">AV.io 4K</option>
+        </optgroup>
+        <optgroup label="Другое">
+          <option value="__custom__">✏ Ввести вручную…</option>
+        </optgroup>
+      </select>
+      <div id="ne-vc-custom" style="display:none;margin-top:4px;">
+        <label>Название устройства</label>
+        <input id="ne-vc-custom-val" type="text" placeholder="напр. Epiphan Pearl Mini"/>
+      </div>
+    </div>
+    <div id="ne-nova-row" style="display:none;margin-top:4px;">
+      <label>Линейка Novastar</label>
+      <select id="ne-nova" onchange="onNovaChange('ne')">
+        <option value="">— выбрать модель —</option>
+        <optgroup label="MCTRL">
+          <option>MCTRL4K</option>
+          <option>MCTRL660</option>
+          <option>MCTRL R5</option>
+          <option>MCTRL300</option>
+        </optgroup>
+        <optgroup label="VX">
+          <option>VX4S-N</option>
+          <option>VX6S</option>
+        </optgroup>
+        <optgroup label="H серия">
+          <option>H2</option>
+          <option>H4</option>
+          <option>H9</option>
+          <option>H15</option>
+        </optgroup>
+        <optgroup label="Другие">
+          <option>NovaPro HD</option>
+        </optgroup>
+      </select>
+      <label style="margin-top:5px;">Количество выходов</label>
+      <input id="ne-outputs" type="number" min="1" max="64" placeholder="напр. 4"/>
+    </div>
+    <div id="ne-audio-row" style="display:none;margin-top:4px;">
+      <label>Модель пульта</label>
+      <select id="ne-audio" onchange="onAudioConsoleChange('ne')">
+        <option value="">— выбрать модель —</option>
+        <optgroup label="⭐ Топ райдер">
+          <option value="Yamaha CL5">CL5</option>
+          <option value="Yamaha CL3">CL3</option>
+          <option value="DiGiCo SD12">DiGiCo SD12</option>
+          <option value="Avid S6L-32D">Avid S6L-32D</option>
+          <option value="A&H dLive S7000">dLive S7000</option>
+        </optgroup>
+        <optgroup label="Yamaha">
+          <option value="Yamaha CL5">CL5</option>
+          <option value="Yamaha CL3">CL3</option>
+          <option value="Yamaha CL1">CL1</option>
+          <option value="Yamaha QL5">QL5</option>
+          <option value="Yamaha QL1">QL1</option>
+          <option value="Yamaha TF5">TF5</option>
+          <option value="Yamaha TF3">TF3</option>
+          <option value="Yamaha PM7">PM7</option>
+          <option value="Yamaha PM10">PM10</option>
+        </optgroup>
+        <optgroup label="Behringer">
+          <option value="Behringer X32">X32</option>
+          <option value="Behringer X32 Compact">X32 Compact</option>
+          <option value="Behringer X32 Rack">X32 Rack</option>
+          <option value="Behringer Wing">Wing</option>
+        </optgroup>
+        <optgroup label="A&H dLive">
+          <option value="A&H dLive S7000">S7000</option>
+          <option value="A&H dLive S5000">S5000</option>
+          <option value="A&H dLive S3000">S3000</option>
+          <option value="A&H dLive CDM64">CDM64</option>
+        </optgroup>
+        <optgroup label="DiGiCo">
+          <option value="DiGiCo SD12">SD12</option>
+          <option value="DiGiCo SD10">SD10</option>
+          <option value="DiGiCo SD7">SD7</option>
+          <option value="DiGiCo SD5">SD5</option>
+          <option value="DiGiCo Quantum 5">Quantum 5</option>
+        </optgroup>
+        <optgroup label="Avid">
+          <option value="Avid S6L-32D">S6L-32D</option>
+          <option value="Avid S6L-24D">S6L-24D</option>
+          <option value="Avid SC48">SC48</option>
+        </optgroup>
+        <optgroup label="Midas">
+          <option value="Midas PRO X">PRO X</option>
+          <option value="Midas PRO2">PRO2</option>
+          <option value="Midas HD96">HD96</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ne-broadcast-row" style="display:none;margin-top:4px;">
+      <label>Тип трансляции</label>
+      <select id="ne-broadcast" onchange="onBroadcastChange('ne')">
+        <option value="">— выбрать тип —</option>
+        <optgroup label="ПО">
+          <option value="OBS Studio">OBS Studio</option>
+          <option value="vMix">vMix</option>
+          <option value="Wirecast">Wirecast</option>
+          <option value="Tricaster">Tricaster</option>
+          <option value="Livestream Studio">Livestream Studio</option>
+        </optgroup>
+        <optgroup label="Протокол">
+          <option value="RTMP">RTMP</option>
+          <option value="SRT">SRT</option>
+          <option value="NDI">NDI</option>
+          <option value="HLS">HLS</option>
+          <option value="WebRTC">WebRTC</option>
+          <option value="RTSP">RTSP</option>
+          <option value="Zixi">Zixi</option>
+        </optgroup>
+        <optgroup label="Захват">
+          <option value="HDMI Capture">HDMI Capture</option>
+          <option value="SDI Capture">SDI Capture</option>
+          <option value="NDI In">NDI In</option>
+        </optgroup>
+        <optgroup label="Платформа">
+          <option value="YouTube Live">YouTube Live</option>
+          <option value="Twitch">Twitch</option>
+          <option value="Facebook Live">Facebook Live</option>
+          <option value="Custom RTMP">Custom RTMP</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ne-video-row" style="display:none;margin-top:4px;">
+      <label>ПО / платформа</label>
+      <select id="ne-video" onchange="onVideoServerChange('ne')">
+        <option value="">— выбрать —</option>
+        <optgroup label="Disguise">
+          <option value="Disguise gx 2c">gx 2c</option>
+          <option value="Disguise gx 2">gx 2</option>
+          <option value="Disguise pro range">pro range</option>
+          <option value="Disguise vx 4">vx 4</option>
+          <option value="Disguise rx II">rx II</option>
+        </optgroup>
+        <optgroup label="Green Hippo">
+          <option value="Hippotizer Karst+">Karst+</option>
+          <option value="Hippotizer Boreal+">Boreal+</option>
+          <option value="Hippotizer Montane+">Montane+</option>
+          <option value="Hippotizer Taiga+">Taiga+</option>
+        </optgroup>
+        <optgroup label="Pixera (AV Stumpfl)">
+          <option value="Pixera One">Pixera One</option>
+          <option value="Pixera Two">Pixera Two</option>
+          <option value="Pixera Three">Pixera Three</option>
+        </optgroup>
+        <optgroup label="Dataton">
+          <option value="WATCHOUT">WATCHOUT</option>
+        </optgroup>
+        <optgroup label="Pandoras Box">
+          <option value="Pandoras Box Server">PB Server</option>
+          <option value="Pandoras Box Player">PB Player</option>
+        </optgroup>
+        <optgroup label="Custom PC">
+          <option value="Resolume Arena">Resolume Arena</option>
+          <option value="Resolume Avenue">Resolume Avenue</option>
+          <option value="Notch">Notch</option>
+          <option value="Ventuz">Ventuz</option>
+          <option value="Screenberry">Screenberry</option>
+          <option value="ArKaos GrandVJ">ArKaos GrandVJ</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ne-tc-row" style="display:none;margin-top:4px;">
+      <label>Источник таймкода</label>
+      <select id="ne-tc-src" onchange="onTCSourceChange('ne')">
+        <option value="">— выбрать —</option>
+        <optgroup label="ПО">
+          <option value="Reaper (LTC)">Reaper</option>
+          <option value="Logic Pro X (LTC)">Logic Pro X</option>
+          <option value="Pro Tools (MTC)">Pro Tools</option>
+          <option value="Ableton Live (MTC)">Ableton Live</option>
+          <option value="QLab (MTC)">QLab</option>
+          <option value="Nuendo (LTC)">Nuendo</option>
+          <option value="Cubase (MTC)">Cubase</option>
+        </optgroup>
+        <optgroup label="Формат">
+          <option value="LTC — аудиовыход">LTC (аудио)</option>
+          <option value="MTC — MIDI">MTC (MIDI)</option>
+          <option value="Art-Net Timecode">Art-Net TC</option>
+          <option value="SMPTE">SMPTE</option>
+        </optgroup>
+        <optgroup label="Интерфейс">
+          <option value="USB Audio Interface (LTC)">USB Audio Interface</option>
+          <option value="MIDI Interface (MTC)">MIDI Interface</option>
+          <option value="Headphone Out (LTC)">Headphone Out</option>
+          <option value="Timecode Systems UltraSync">UltraSync ONE</option>
+          <option value="Ambient ACN Lockit">Ambient Lockit</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ne-ai-row" style="display:none;margin-top:4px;">
+      <label>Модель / назначение</label>
+      <select id="ne-ai" onchange="onAudioInterfaceChange('ne')">
+        <option value="">— выбрать —</option>
+        <optgroup label="Назначение">
+          <option value="TC приём (LTC In)">TC приём (LTC)</option>
+          <option value="TC генерация (LTC Out)">TC генерация (LTC)</option>
+          <option value="Аудио плейбек">Аудио плейбек</option>
+          <option value="Запись">Запись</option>
+          <option value="Dante / AES67">Dante / AES67</option>
+          <option value="MADI">MADI</option>
+        </optgroup>
+        <optgroup label="RME">
+          <option value="RME Fireface UFX III">Fireface UFX III</option>
+          <option value="RME Fireface 802 FS">Fireface 802 FS</option>
+          <option value="RME Babyface Pro FS">Babyface Pro FS</option>
+          <option value="RME HDSPe MADI FX">HDSPe MADI FX</option>
+          <option value="RME MADIface USB">MADIface USB</option>
+        </optgroup>
+        <optgroup label="Focusrite">
+          <option value="Focusrite RedNet A16R">RedNet A16R</option>
+          <option value="Focusrite RedNet 16Line">RedNet 16Line</option>
+          <option value="Focusrite Scarlett 18i20">Scarlett 18i20</option>
+        </optgroup>
+        <optgroup label="MOTU">
+          <option value="MOTU M2">M2</option>
+          <option value="MOTU M4">M4</option>
+          <option value="MOTU M6">M6</option>
+          <option value="MOTU 1248">1248</option>
+          <option value="MOTU 828es">828es</option>
+          <option value="MOTU 16A">16A</option>
+          <option value="MOTU UltraLite mk5">UltraLite mk5</option>
+        </optgroup>
+        <optgroup label="Behringer">
+          <option value="Behringer UMC1820">UMC1820</option>
+          <option value="Behringer ADA8200">ADA8200</option>
+        </optgroup>
+        <optgroup label="Universal Audio">
+          <option value="UA Apollo x8p">Apollo x8p</option>
+          <option value="UA Apollo x16">Apollo x16</option>
+        </optgroup>
+        <optgroup label="Avid">
+          <option value="Avid HD I/O">HD I/O</option>
+          <option value="Avid MBOX Pro">MBOX Pro</option>
+        </optgroup>
+      </select>
+    </div>
+    <label>Название</label><input id="ne-t" type="text"/>
+    <label>Подпись 1</label><input id="ne-s1" type="text"/>
+    <label>Подпись 2</label><input id="ne-s2" type="text"/>
+    <label>Визуальный акцент <span style="color:#999;font-size:10px;">(авто по типу)</span></label>
+    <select id="ne-style">
+      <option value="normal">Обычный</option>
+      <option value="highlight">Выделенный (жёлтый)</option>
+      <option value="output">Выход (серый)</option>
+      <option value="audio">Звук (синий)</option>
+    </select>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="ne-tc"/> Получает TC (TC in)</label>
+    </div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="ne-tcout"/> Отдаёт TC (TC out → шина)</label>
+    </div>
+    <div class="btns">
+      <button class="ok" id="ne-ok-btn" onclick="saveNode()">OK</button>
+      <button class="del" id="ne-del-btn" onclick="deleteNode()">Удалить</button>
+      <button onclick="cp('ned')">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edge editor popup -->
+<div class="popup" id="eed">
+  <div class="popup-header" onmousedown="startDragPopup(event,'eed')">
+    ⤳ Редактировать связь
+    <button class="close-btn" onclick="cp('eed')">✕</button>
+  </div>
+  <div class="popup-body">
+    <label>Протокол / подпись</label><input id="ee-l" type="text" placeholder="Art-Net, HDMI, OSC…"/>
+    <label>Кабель / разъём</label>
+    <select id="ee-cable">
+      <option value="">— не указан —</option>
+      <optgroup label="Видео">
+        <option value="HDMI">HDMI</option>
+        <option value="HDMI 2.0">HDMI 2.0</option>
+        <option value="DisplayPort">DisplayPort</option>
+        <option value="SDI">SDI (BNC)</option>
+        <option value="12G-SDI">12G-SDI</option>
+        <option value="DVI">DVI</option>
+      </optgroup>
+      <optgroup label="Аудио">
+        <option value="XLR">XLR (балансный)</option>
+        <option value="AES/EBU">AES/EBU (XLR)</option>
+        <option value="Jack TRS">Jack 6.3 TRS</option>
+        <option value="MADI Coax">MADI (коаксиал)</option>
+        <option value="MADI Optical">MADI (оптика)</option>
+        <option value="TOSLINK">TOSLINK</option>
+      </optgroup>
+      <optgroup label="Сеть / данные">
+        <option value="Cat6 RJ-45">Cat6 (RJ-45)</option>
+        <option value="Cat7 RJ-45">Cat7 (RJ-45)</option>
+        <option value="Fiber SFP">Fiber SFP</option>
+        <option value="USB">USB</option>
+        <option value="Dante">Dante (AoIP)</option>
+        <option value="AVB">AVB</option>
+      </optgroup>
+      <optgroup label="Управление">
+        <option value="DMX512">DMX512 (XLR5)</option>
+        <option value="Art-Net">Art-Net (Cat6)</option>
+        <option value="sACN">sACN (Cat6)</option>
+        <option value="MIDI">MIDI (DIN5)</option>
+        <option value="SMPTE LTC">SMPTE LTC (XLR)</option>
+        <option value="MTC">MTC (MIDI)</option>
+      </optgroup>
+    </select>
+    <div style="display:flex;gap:6px;">
+      <div style="flex:1;">
+        <label>Разрешение (видео)</label>
+        <select id="ee-res">
+          <option value="">—</option>
+          <option value="HD 720p">HD 720p</option>
+          <option value="HD 1080i">HD 1080i</option>
+          <option value="HD 1080p">HD 1080p</option>
+          <option value="2K">2K</option>
+          <option value="4K UHD">4K UHD</option>
+          <option value="4K DCI">4K DCI</option>
+          <option value="8K">8K</option>
+        </select>
+      </div>
+      <div style="flex:1;">
+        <label>Сэмплрейт (аудио)</label>
+        <select id="ee-rate">
+          <option value="">—</option>
+          <option value="44.1 kHz">44.1 kHz</option>
+          <option value="48 kHz">48 kHz</option>
+          <option value="88.2 kHz">88.2 kHz</option>
+          <option value="96 kHz">96 kHz</option>
+          <option value="192 kHz">192 kHz</option>
+        </select>
+      </div>
+    </div>
+    <label>Тип линии</label>
+    <select id="ee-s">
+      <option value="solid">Сплошная — медиасигнал</option>
+      <option value="dashed">Пунктир — OSC / управление</option>
+    </select>
+    <div class="btns">
+      <button class="ok" onclick="saveEdge()">OK</button>
+      <button class="del" onclick="delEdge()">Удалить</button>
+      <button onclick="cp('eed')">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Network Structure Panel -->
+<div id="net-panel"></div>
+
+<!-- Signal table popup -->
+<div class="popup" id="std" style="min-width:580px;max-width:820px;">
+  <div class="popup-header" onmousedown="startDragPopup(event,'std')">
+    📊 Таблица сигналов
+    <button class="close-btn" onclick="cp('std')">✕</button>
+  </div>
+  <div class="popup-body" style="max-height:72vh;overflow-y:auto;">
+    <div class="st-section">Связи (<span id="st-cnt-e">0</span>)</div>
+    <div id="st-connections"></div>
+    <div class="st-section">Устройства (<span id="st-cnt-n">0</span>)</div>
+    <div id="st-devices"></div>
+    <div class="btns" style="margin-top:12px;">
+      <button class="ok" onclick="exportSignalTable()">⬇ HTML</button>
+      <button onclick="exportCSV()">⬇ CSV</button>
+      <button onclick="cp('std')">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Note editor popup -->
+<div class="popup" id="xed">
+  <div class="popup-header" onmousedown="startDragPopup(event,'xed')">
+    📝 Заметка
+    <button class="close-btn" onclick="cp('xed')">✕</button>
+  </div>
+  <div class="popup-body">
+    <label>Текст</label>
+    <textarea id="xe-t" rows="4"></textarea>
+    <label>Цвет</label>
+    <select id="xe-c">
+      <option value="#fffbe6">Жёлтый</option>
+      <option value="#e8ffe8">Зелёный</option>
+      <option value="#e8f4ff">Синий</option>
+      <option value="#ffe8f4">Розовый</option>
+      <option value="#f5f5f5">Серый</option>
+    </select>
+    <div class="btns">
+      <button class="ok" onclick="saveNote()">OK</button>
+      <button class="del" onclick="deleteNote()">Удалить</button>
+      <button onclick="cp('xed')">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Search popup -->
+<div class="popup" id="sed" style="min-width:290px;">
+  <div class="popup-header" onmousedown="startDragPopup(event,'sed')">
+    🔍 Поиск
+    <button class="close-btn" onclick="closeSearch()">✕</button>
+  </div>
+  <div class="popup-body">
+    <input id="se-q" type="text" placeholder="Название или подпись..."/>
+    <div class="row" style="margin-top:8px;justify-content:space-between;align-items:center;">
+      <button onclick="searchPrev()" style="flex:0;padding:4px 10px;">◀</button>
+      <span id="se-info" style="font-size:11px;color:#888;min-width:60px;text-align:center;"></span>
+      <button onclick="searchNext()" style="flex:0;padding:4px 10px;">▶</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add node popup (DELETED — merged into ned) -->
+<!--
+<div class="popup" id="aed">
+  <div class="popup-header" onmousedown="startDragPopup(event,'aed')">
+    ＋ Новая нода
+    <button class="close-btn" onclick="cp('aed')">✕</button>
+  </div>
+  <div class="popup-body">
+    <label>Тип устройства</label>
+    <select id="ae-devtype" onchange="onDevTypeChange('ae')">
+      <option value="">Обычный</option>
+      <option value="video-server">Видеосервер</option>
+      <option value="touchdesigner">Сервер TouchDesigner</option>
+      <option value="audio-console">Звуковой пульт</option>
+      <option value="audio-interface">Звуковой интерфейс</option>
+      <option value="broadcast">Сервер трансляции</option>
+      <option value="timecode">Timecode Notebook</option>
+      <option value="led-processor">Видеопроцессор</option>
+      <option value="light-console">Световой пульт</option>
+    </select>
+    <div id="ae-nova-row" style="display:none;margin-top:4px;">
+      <label>Линейка Novastar</label>
+      <select id="ae-nova" onchange="onNovaChange('ae')">
+        <option value="">— выбрать модель —</option>
+        <optgroup label="MCTRL">
+          <option>MCTRL4K</option>
+          <option>MCTRL660</option>
+          <option>MCTRL R5</option>
+          <option>MCTRL300</option>
+        </optgroup>
+        <optgroup label="VX">
+          <option>VX4S-N</option>
+          <option>VX6S</option>
+        </optgroup>
+        <optgroup label="H серия">
+          <option>H2</option>
+          <option>H4</option>
+          <option>H9</option>
+          <option>H15</option>
+        </optgroup>
+        <optgroup label="Другие">
+          <option>NovaPro HD</option>
+        </optgroup>
+      </select>
+      <label style="margin-top:5px;">Количество выходов</label>
+      <input id="ae-outputs" type="number" min="1" max="64" placeholder="напр. 4"/>
+    </div>
+    <div id="ae-audio-row" style="display:none;margin-top:4px;">
+      <label>Модель пульта</label>
+      <select id="ae-audio" onchange="onAudioConsoleChange('ae')">
+        <option value="">— выбрать модель —</option>
+        <optgroup label="⭐ Топ райдер">
+          <option value="Yamaha CL5">CL5</option>
+          <option value="Yamaha CL3">CL3</option>
+          <option value="DiGiCo SD12">DiGiCo SD12</option>
+          <option value="Avid S6L-32D">Avid S6L-32D</option>
+          <option value="A&H dLive S7000">dLive S7000</option>
+        </optgroup>
+        <optgroup label="Yamaha">
+          <option value="Yamaha CL5">CL5</option>
+          <option value="Yamaha CL3">CL3</option>
+          <option value="Yamaha CL1">CL1</option>
+          <option value="Yamaha QL5">QL5</option>
+          <option value="Yamaha QL1">QL1</option>
+          <option value="Yamaha TF5">TF5</option>
+          <option value="Yamaha TF3">TF3</option>
+          <option value="Yamaha PM7">PM7</option>
+          <option value="Yamaha PM10">PM10</option>
+        </optgroup>
+        <optgroup label="Behringer">
+          <option value="Behringer X32">X32</option>
+          <option value="Behringer X32 Compact">X32 Compact</option>
+          <option value="Behringer X32 Rack">X32 Rack</option>
+          <option value="Behringer Wing">Wing</option>
+        </optgroup>
+        <optgroup label="A&H dLive">
+          <option value="A&H dLive S7000">S7000</option>
+          <option value="A&H dLive S5000">S5000</option>
+          <option value="A&H dLive S3000">S3000</option>
+          <option value="A&H dLive CDM64">CDM64</option>
+        </optgroup>
+        <optgroup label="DiGiCo">
+          <option value="DiGiCo SD12">SD12</option>
+          <option value="DiGiCo SD10">SD10</option>
+          <option value="DiGiCo SD7">SD7</option>
+          <option value="DiGiCo SD5">SD5</option>
+          <option value="DiGiCo Quantum 5">Quantum 5</option>
+        </optgroup>
+        <optgroup label="Avid">
+          <option value="Avid S6L-32D">S6L-32D</option>
+          <option value="Avid S6L-24D">S6L-24D</option>
+          <option value="Avid SC48">SC48</option>
+        </optgroup>
+        <optgroup label="Midas">
+          <option value="Midas PRO X">PRO X</option>
+          <option value="Midas PRO2">PRO2</option>
+          <option value="Midas HD96">HD96</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ae-broadcast-row" style="display:none;margin-top:4px;">
+      <label>Тип трансляции</label>
+      <select id="ae-broadcast" onchange="onBroadcastChange('ae')">
+        <option value="">— выбрать тип —</option>
+        <optgroup label="ПО">
+          <option value="OBS Studio">OBS Studio</option>
+          <option value="vMix">vMix</option>
+          <option value="Wirecast">Wirecast</option>
+          <option value="Tricaster">Tricaster</option>
+          <option value="Livestream Studio">Livestream Studio</option>
+        </optgroup>
+        <optgroup label="Протокол">
+          <option value="RTMP">RTMP</option>
+          <option value="SRT">SRT</option>
+          <option value="NDI">NDI</option>
+          <option value="HLS">HLS</option>
+          <option value="WebRTC">WebRTC</option>
+          <option value="RTSP">RTSP</option>
+          <option value="Zixi">Zixi</option>
+        </optgroup>
+        <optgroup label="Захват">
+          <option value="HDMI Capture">HDMI Capture</option>
+          <option value="SDI Capture">SDI Capture</option>
+          <option value="NDI In">NDI In</option>
+        </optgroup>
+        <optgroup label="Платформа">
+          <option value="YouTube Live">YouTube Live</option>
+          <option value="Twitch">Twitch</option>
+          <option value="Facebook Live">Facebook Live</option>
+          <option value="Custom RTMP">Custom RTMP</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ae-video-row" style="display:none;margin-top:4px;">
+      <label>ПО / платформа</label>
+      <select id="ae-video" onchange="onVideoServerChange('ae')">
+        <option value="">— выбрать —</option>
+        <optgroup label="Disguise">
+          <option value="Disguise gx 2c">gx 2c</option>
+          <option value="Disguise gx 2">gx 2</option>
+          <option value="Disguise pro range">pro range</option>
+          <option value="Disguise vx 4">vx 4</option>
+          <option value="Disguise rx II">rx II</option>
+        </optgroup>
+        <optgroup label="Green Hippo">
+          <option value="Hippotizer Karst+">Karst+</option>
+          <option value="Hippotizer Boreal+">Boreal+</option>
+          <option value="Hippotizer Montane+">Montane+</option>
+          <option value="Hippotizer Taiga+">Taiga+</option>
+        </optgroup>
+        <optgroup label="Pixera (AV Stumpfl)">
+          <option value="Pixera One">Pixera One</option>
+          <option value="Pixera Two">Pixera Two</option>
+          <option value="Pixera Three">Pixera Three</option>
+        </optgroup>
+        <optgroup label="Dataton">
+          <option value="WATCHOUT">WATCHOUT</option>
+        </optgroup>
+        <optgroup label="Pandoras Box">
+          <option value="Pandoras Box Server">PB Server</option>
+          <option value="Pandoras Box Player">PB Player</option>
+        </optgroup>
+        <optgroup label="Custom PC">
+          <option value="Resolume Arena">Resolume Arena</option>
+          <option value="Resolume Avenue">Resolume Avenue</option>
+          <option value="Notch">Notch</option>
+          <option value="Ventuz">Ventuz</option>
+          <option value="Screenberry">Screenberry</option>
+          <option value="ArKaos GrandVJ">ArKaos GrandVJ</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ae-tc-row" style="display:none;margin-top:4px;">
+      <label>Источник таймкода</label>
+      <select id="ae-tc-src" onchange="onTCSourceChange('ae')">
+        <option value="">— выбрать —</option>
+        <optgroup label="ПО">
+          <option value="Reaper (LTC)">Reaper</option>
+          <option value="Logic Pro X (LTC)">Logic Pro X</option>
+          <option value="Pro Tools (MTC)">Pro Tools</option>
+          <option value="Ableton Live (MTC)">Ableton Live</option>
+          <option value="QLab (MTC)">QLab</option>
+          <option value="Nuendo (LTC)">Nuendo</option>
+          <option value="Cubase (MTC)">Cubase</option>
+        </optgroup>
+        <optgroup label="Формат">
+          <option value="LTC — аудиовыход">LTC (аудио)</option>
+          <option value="MTC — MIDI">MTC (MIDI)</option>
+          <option value="Art-Net Timecode">Art-Net TC</option>
+          <option value="SMPTE">SMPTE</option>
+        </optgroup>
+        <optgroup label="Интерфейс">
+          <option value="USB Audio Interface (LTC)">USB Audio Interface</option>
+          <option value="MIDI Interface (MTC)">MIDI Interface</option>
+          <option value="Headphone Out (LTC)">Headphone Out</option>
+          <option value="Timecode Systems UltraSync">UltraSync ONE</option>
+          <option value="Ambient ACN Lockit">Ambient Lockit</option>
+        </optgroup>
+      </select>
+    </div>
+    <div id="ae-ai-row" style="display:none;margin-top:4px;">
+      <label>Модель / назначение</label>
+      <select id="ae-ai" onchange="onAudioInterfaceChange('ae')">
+        <option value="">— выбрать —</option>
+        <optgroup label="Назначение">
+          <option value="TC приём (LTC In)">TC приём (LTC)</option>
+          <option value="TC генерация (LTC Out)">TC генерация (LTC)</option>
+          <option value="Аудио плейбек">Аудио плейбек</option>
+          <option value="Запись">Запись</option>
+          <option value="Dante / AES67">Dante / AES67</option>
+          <option value="MADI">MADI</option>
+        </optgroup>
+        <optgroup label="RME">
+          <option value="RME Fireface UFX III">Fireface UFX III</option>
+          <option value="RME Fireface 802 FS">Fireface 802 FS</option>
+          <option value="RME Babyface Pro FS">Babyface Pro FS</option>
+          <option value="RME HDSPe MADI FX">HDSPe MADI FX</option>
+          <option value="RME MADIface USB">MADIface USB</option>
+        </optgroup>
+        <optgroup label="Focusrite">
+          <option value="Focusrite RedNet A16R">RedNet A16R</option>
+          <option value="Focusrite RedNet 16Line">RedNet 16Line</option>
+          <option value="Focusrite Scarlett 18i20">Scarlett 18i20</option>
+        </optgroup>
+        <optgroup label="MOTU">
+          <option value="MOTU M2">M2</option>
+          <option value="MOTU M4">M4</option>
+          <option value="MOTU M6">M6</option>
+          <option value="MOTU 1248">1248</option>
+          <option value="MOTU 828es">828es</option>
+          <option value="MOTU 16A">16A</option>
+          <option value="MOTU UltraLite mk5">UltraLite mk5</option>
+        </optgroup>
+        <optgroup label="Behringer">
+          <option value="Behringer UMC1820">UMC1820</option>
+          <option value="Behringer ADA8200">ADA8200</option>
+        </optgroup>
+        <optgroup label="Universal Audio">
+          <option value="UA Apollo x8p">Apollo x8p</option>
+          <option value="UA Apollo x16">Apollo x16</option>
+        </optgroup>
+        <optgroup label="Avid">
+          <option value="Avid HD I/O">HD I/O</option>
+          <option value="Avid MBOX Pro">MBOX Pro</option>
+        </optgroup>
+      </select>
+    </div>
+    <label>Название</label><input id="ae-t" type="text" placeholder="Название ноды"/>
+    <label>Подпись 1</label><input id="ae-s1" type="text" placeholder="VJ Server"/>
+    <label>Подпись 2</label><input id="ae-s2" type="text"/>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="ae-tc"/> Получает TC (TC in)</label>
+    </div>
+    <div class="row">
+      <label class="chk"><input type="checkbox" id="ae-tcout"/> Отдаёт TC (TC out → шина)</label>
+    </div>
+    <div class="btns">
+      <button class="ok" onclick="confirmAdd()">Добавить</button>
+      <button onclick="cp('aed')">Отмена</button>
+    </div>
+  </div>
+</div>
+-->
+
+<!-- Zone editor popup -->
+<div class="popup" id="zed">
+  <div class="popup-header" onmousedown="startDragPopup(event,'zed')">
+    ☐ Зона / группа
+    <button class="close-btn" onclick="cp('zed')">✕</button>
+  </div>
+  <div class="popup-body">
+    <label>Название зоны</label>
+    <input id="ze-t" type="text" placeholder="напр. Видео система"/>
+    <label>Цвет</label>
+    <select id="ze-c">
+      <option value="#4a9eff">🔵 Синий — видео</option>
+      <option value="#22aa66">🟢 Зелёный — LED</option>
+      <option value="#aa66cc">🟣 Фиолетовый — TouchDesigner</option>
+      <option value="#1a6aaa">🔷 Тёмно-синий — аудио</option>
+      <option value="#ff9900">🟠 Оранжевый — Timecode</option>
+      <option value="#ffbb33">🟡 Жёлтый — свет</option>
+      <option value="#cc4444">🔴 Красный — трансляция</option>
+      <option value="#888888">⬜ Серый — прочее</option>
+    </select>
+    <div class="btns">
+      <button class="ok" onclick="saveZone()">Сохранить</button>
+      <button onclick="fitZoneToNodes()" title="Подогнать размер под ноды внутри зоны">Подогнать</button>
+      <button class="del" onclick="deleteZone()">Удалить</button>
+    </div>
+  </div>
+</div>
+
+<!-- TC Bus editor popup -->
+<div class="popup" id="tcbed">
+  <div class="popup-header" onmousedown="startDragPopup(event,'tcbed')">
+    ⏱ TC шина
+    <button class="close-btn" onclick="cp('tcbed')">✕</button>
+  </div>
+  <div class="popup-body">
+    <label>Название</label>
+    <input id="tcb-label" type="text" placeholder="напр. LTC от ноутбука"/>
+    <label>Цвет</label>
+    <select id="tcb-color">
+      <option value="#555">⬛ Серый (по умолчанию)</option>
+      <option value="#4a9eff">🔵 Синий</option>
+      <option value="#ff9900">🟠 Оранжевый</option>
+      <option value="#cc4444">🔴 Красный</option>
+      <option value="#22aa66">🟢 Зелёный</option>
+      <option value="#aa66cc">🟣 Фиолетовый</option>
+    </select>
+    <div class="btns">
+      <button class="ok" onclick="saveTCBus()">Сохранить</button>
+      <button class="del" onclick="deleteTCBus()">Удалить шину</button>
+    </div>
+  </div>
+</div>
+
+<!-- Custom Device Types popup -->
+<div class="popup" id="ctyed" style="min-width:320px;max-width:360px;">
+  <div class="popup-header" onmousedown="startDragPopup(event,'ctyed')">
+    🎨 Кастомные типы устройств
+    <button class="close-btn" onclick="cp('ctyed')">✕</button>
+  </div>
+  <div class="popup-body">
+    <ul id="cdt-list" style="list-style:none;margin:0 0 10px;padding:0;max-height:160px;overflow-y:auto;"></ul>
+    <label>Название нового типа</label>
+    <input id="cdt-id" type="hidden"/>
+    <input id="cdt-label" type="text" placeholder="напр. Медиасервер Watchout" style="width:100%;box-sizing:border-box;"/>
+    <label style="margin-top:8px;display:block;">Цвет</label>
+    <input id="cdt-color" type="color" value="#4a9eff" style="width:60px;height:30px;padding:2px;cursor:pointer;border:1px solid var(--border);border-radius:4px;background:var(--bg-popup);"/>
+    <div class="btns" style="margin-top:10px;">
+      <button class="ok" onclick="saveCDT()">Сохранить тип</button>
+    </div>
+  </div>
+</div>
+
+<!-- Help popup -->
+<div class="popup" id="help-popup" style="min-width:400px;max-width:460px;">
+  <div class="popup-header" onmousedown="startDragPopup(event,'help-popup')">
+    ❓ Справка — горячие клавиши
+    <button class="close-btn" onclick="cp('help-popup')">✕</button>
+  </div>
+  <div class="popup-body">
+    <div class="help-section">Навигация холста</div>
+    <div class="help-row"><kbd>Space</kbd>+drag / СКМ<span>Панорама</span></div>
+    <div class="help-row"><kbd>Ctrl</kbd>+колесо<span>Зум</span></div>
+    <div class="help-row"><kbd>Ctrl+0</kbd><span>Показать всё (fit)</span></div>
+
+    <div class="help-section">Выделение</div>
+    <div class="help-row"><kbd>V</kbd><span>Режим выбора</span></div>
+    <div class="help-row">Обвести мышкой<span>Выделить несколько нод</span></div>
+    <div class="help-row"><kbd>Shift/Ctrl</kbd>+клик<span>Добавить к выделению</span></div>
+    <div class="help-row"><kbd>Ctrl+A</kbd><span>Выделить всё</span></div>
+    <div class="help-row"><kbd>Del / Backspace</kbd><span>Удалить выбранное</span></div>
+    <div class="help-row"><kbd>Ctrl+C</kbd> / <kbd>Ctrl+V</kbd><span>Копировать / Вставить</span></div>
+
+    <div class="help-section">Связи</div>
+    <div class="help-row"><kbd>E</kbd><span>Режим связей</span></div>
+    <div class="help-row">Клик порта → клик порта<span>Создать связь</span></div>
+    <div class="help-row"><kbd>Esc</kbd><span>Отмена режима / операции</span></div>
+
+    <div class="help-section">Ноды</div>
+    <div class="help-row">Двойной клик<span>Редактировать ноду или связь</span></div>
+    <div class="help-row">Drag на связь<span>Вставить ноду в разрыв</span></div>
+    <div class="help-row">Drag к TC Bus<span>Подключить к Timecode</span></div>
+    <div class="help-row">Drag к TC-линии<span>Вставить в цепочку TC</span></div>
+
+    <div class="help-section">История</div>
+    <div class="help-row"><kbd>Ctrl+Z</kbd><span>Отменить</span></div>
+    <div class="help-row"><kbd>Ctrl+Y</kbd> / <kbd>Ctrl+Shift+Z</kbd><span>Повторить</span></div>
+
+    <div class="help-section">Файл</div>
+    <div class="help-row"><kbd>Ctrl+S</kbd><span>Сохранить проект (.ssfp)</span></div>
+    <div class="help-row"><kbd>Ctrl+O</kbd><span>Открыть проект</span></div>
+    <div class="help-row"><kbd>Ctrl+F</kbd><span>Поиск по нодам</span></div>
+    <div class="help-row"><kbd>F11</kbd><span>Полный экран</span></div>
+  </div>
+</div>
+
+<script src="app.js"></script></body>
+</html>

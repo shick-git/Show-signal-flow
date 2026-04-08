@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npm run:*)",
+      "Bash(dir \"C:\\\\Users\\\\Asus\\\\Documents\\\\PRJ 2026\\\\AI\\\\EXPERIMENTS\\\\showflow\\\\dist\" /b)",
+      "Bash(dir \"C:\\\\Users\\\\Asus\\\\Documents\\\\PRJ 2026\\\\AI\\\\EXPERIMENTS\\\\showflow\\\\dist\")",
+      "Bash(dir \"C:\\\\Users\\\\Asus\\\\Documents\\\\PRJ 2026\\\\AI\\\\EXPERIMENTS\\\\showflow\\\\dist\\\\ShowSignalFlow-v2.9-portable.exe\")",
+      "Bash(dir \"C:\\\\Users\\\\Asus\\\\Documents\\\\PRJ 2026\\\\AI\\\\EXPERIMENTS\\\\showflow\\\\dist\\\\ShowSignalFlow-v2.9.0-portable.exe\")",
+      "Bash(python3:*)",
+      "Bash(grep -n \"tc={...DTC}\\\\|tc=.*DTC\\\\|tc\\\\.y\\\\|tc\\\\.x1\\\\|tc\\\\.x2\\\\|tcVisible=true\\\\|tcVisible=false\\\\|tcVisible =\" \"C:\\\\Users\\\\Asus\\\\Documents\\\\PRJ 2026\\\\AI\\\\EXPERIMENTS\\\\showflow\\\\app.js\")",
+      "Bash(node -e \"require\\(''''fs''''\\).readFileSync\\(''''app.js'''',''''utf8''''\\)\")",
+      "Bash(node --check app.js)",
+      "Bash(npm start:*)",
+      "Bash(node --check \"C:\\\\Users\\\\Asus\\\\Documents\\\\PRJ 2026\\\\AI\\\\EXPERIMENTS\\\\showflow\\\\app.js\")",
+      "Bash(node -e \"const p=require\\(''./package.json''\\); console.log\\(p.version, JSON.stringify\\(p.scripts\\)\\)\")",
+      "Bash(dir \"C:/Users/Asus/Documents/PRJ 2026/AI/EXPERIMENTS/showflow/dist\")"
+    ]
+  }
+}

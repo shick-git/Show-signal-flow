@@ -1,0 +1,76 @@
+{
+  "name": "show-signal-flow",
+  "version": "3.3.1",
+  "description": "Show Signal Flow Editor — Concept Store",
+  "main": "main.js",
+  "author": "Concept Store",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "build-installer": "electron-builder --win nsis",
+    "build-mac": "electron-builder --mac dmg",
+    "build-linux": "electron-builder --linux AppImage"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.conceptstore.showflow",
+    "productName": "Show Signal Flow",
+    "copyright": "© Concept Store 2026",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "app.js",
+      "icon.png"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        },
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerLanguages": ["ru_RU", "en_US"],
+      "language": "1049"
+    },
+    "portable": {
+      "artifactName": "ShowSignalFlow-v3.3.1-portable.exe"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] }
+      ],
+      "icon": "icon.png",
+      "category": "public.app-category.utilities",
+      "artifactName": "ShowSignalFlow-v3.3.1-mac-${arch}.dmg"
+    },
+    "dmg": {
+      "title": "Show Signal Flow",
+      "window": { "width": 540, "height": 380 }
+    },
+    "linux": {
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] }
+      ],
+      "icon": "icon.png",
+      "category": "Utility",
+      "artifactName": "ShowSignalFlow-v3.3.1-linux.AppImage"
+    }
+  }
+}
