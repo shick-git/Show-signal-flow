@@ -3,6 +3,19 @@
 // VERSION — единственный источник правды: package.json
 // В Electron: preload передаёт appVersion через contextBridge
 // ═══════════════════════════════════════════════════════════
+
+// ── Drag helper: чистит mousemove даже если отпустить мышь вне окна ──
+function startDrag(onMove, onEnd){
+  const end = ev => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', end);
+    window.removeEventListener('blur', end);
+    if(onEnd) onEnd(ev);
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', end);
+  window.addEventListener('blur', end);
+}
 const APP_VERSION = (window.electronAPI && window.electronAPI.appVersion)
   ? 'v' + window.electronAPI.appVersion
   : 'v?';
@@ -19,8 +32,9 @@ const APP_VERSION = (window.electronAPI && window.electronAPI.appVersion)
 // ═══════════════════════════════════════════════════════════
 // DEFAULT DATA
 // ═══════════════════════════════════════════════════════════
-let UID = 100;
-const uid = () => 'n' + (UID++);
+// UUID-based ID generation: нет счётчика — нет коллизий при merge/ручном редактировании
+// Формат: n + первые 8 hex-символов UUID → достаточно уникален, читаем в .ssfp
+const uid = () => 'n' + crypto.randomUUID().split('-')[0];
 
 // ─── DOM кеши: listeners создаются один раз, не при каждом rNodes/rEdges ──
 const _ngCache = new Map(); // nodeId  → <g> элемент
@@ -423,8 +437,7 @@ function rTC(){
         if(!tcM){ snapshot('TC Bus'); tcM=true; }
         bus.y=Math.max(20, sty+(e.clientY-sy0)/vb.z); rTC();
       };
-      const mu=()=>{ document.removeEventListener('mousemove',mm); document.removeEventListener('mouseup',mu); };
-      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
     TL.appendChild(dh);
 
@@ -542,8 +555,7 @@ function rEdges(){
           if(!wpMoved){ snapshot('Точка маршрута'); wpMoved=true; }
           wp.x=ox+d.dx; wp.y=oy+d.dy; rEdges();
         };
-        const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-        document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+        startDrag(mm);
       });
       wh.addEventListener('dblclick',ev=>{
         ev.stopPropagation(); snapshot('Удалить точку');
@@ -639,8 +651,7 @@ function rNodes(){
         n.h=Math.max(40,oh+d.dy);
         rAll();
       };
-      const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
     g.appendChild(rh);
 
@@ -702,8 +713,7 @@ function rNotes(){
         note.h=Math.max(40,oh+d.dy);
         rNotes();
       };
-      const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
     g.appendChild(rh);
 
@@ -722,8 +732,7 @@ function rNotes(){
           rNotes();
         }
       };
-      const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
 
     g.addEventListener('dblclick',ev=>{ev.stopPropagation(); openNoteEditor(note,ev);});
@@ -810,8 +819,7 @@ function rZones(){
           z.w=Math.max(100,ow+d.dx); z.h=Math.max(60,oh+d.dy);
           rZones();
         };
-        const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-        document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+        startDrag(mm);
       });
       g.appendChild(rh);
     }
@@ -855,8 +863,7 @@ function rZones(){
           rZones(); rEdges(); rTC(); rNodes();
         }
       };
-      const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-      document.addEventListener('mousemove',mm); document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
     g.addEventListener('dblclick',ev=>{ev.stopPropagation(); openZoneEditor(z,ev);});
     ZL.appendChild(g);
@@ -1136,10 +1143,8 @@ function dragNode(g){
         rEdges(); rTC(); rNodes();
       }
     };
-    const mu=()=>{
+    startDrag(mm, ()=>{
       clearGuides();
-      document.removeEventListener('mousemove',mm);
-      document.removeEventListener('mouseup',mu);
       document.body.classList.remove('drop-edge-mode');
       if(moved && groupSnap.length===1){
         if(_dropTCTap){
@@ -1152,9 +1157,7 @@ function dragNode(g){
       } else {
         _dropEdge=null; _dropTC=false; _dropTCTap=null;
       }
-    };
-    document.addEventListener('mousemove',mm);
-    document.addEventListener('mouseup',mu);
+    });
   });
 }
 
@@ -1203,7 +1206,7 @@ function cancelConnect(){
 function finishConnect(toNodeId){
   if(!connectFrom || connectFrom.node.id===toNodeId) return;
   snapshot('Добавить связь');
-  edges.push({id:'e'+Date.now(), from:connectFrom.node.id, to:toNodeId, label:'', style:'solid', wp:[]});
+  edges.push({id:'e'+crypto.randomUUID().split('-')[0], from:connectFrom.node.id, to:toNodeId, label:'', style:'solid', wp:[]});
   cancelConnect();
   rEdges(); rNodes();
 }
@@ -1293,7 +1296,7 @@ document.getElementById('cw').addEventListener('mousedown',ev=>{
     sa(selRect,{x:rx,y:ry,width:rw,height:rh});
   };
 
-  const mu=e=>{
+  startDrag(mm, e=>{
     if(!rubberActive) return;
     rubberActive=false;
     selRect.style.display='none';
@@ -1315,12 +1318,7 @@ document.getElementById('cw').addEventListener('mousedown',ev=>{
       // click on empty area = deselect
       if(!e.shiftKey&&!e.ctrlKey) clearSelection();
     }
-    document.removeEventListener('mousemove',mm);
-    document.removeEventListener('mouseup',mu);
-  };
-
-  document.addEventListener('mousemove',mm);
-  document.addEventListener('mouseup',mu);
+  });
 },{capture:false});
 
 
@@ -1806,12 +1804,7 @@ function startDragPopup(ev, id){
     el.style.left=Math.max(0, Math.min(window.innerWidth-pw,  startL+(e.clientX-startX)))+'px';
     el.style.top =Math.max(42,Math.min(window.innerHeight-ph-22, startT+(e.clientY-startY)))+'px';
   };
-  const mu=()=>{
-    document.removeEventListener('mousemove',mm);
-    document.removeEventListener('mouseup',mu);
-  };
-  document.addEventListener('mousemove',mm);
-  document.addEventListener('mouseup',mu);
+  startDrag(mm);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1879,22 +1872,25 @@ function exportSVG(){
 }
 function exportPNG(){
   const {str,W,H}=getExpSVG(), sc=2, img=new Image();
+  const blobUrl=URL.createObjectURL(new Blob([str],{type:'image/svg+xml'}));
   img.onload=()=>{
     const c=document.createElement('canvas'); c.width=W*sc; c.height=H*sc;
     const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,W*sc,H*sc);
     ctx.scale(sc,sc); ctx.drawImage(img,0,0);
     dl(c.toDataURL('image/png'),'show-signal-flow.png');
+    URL.revokeObjectURL(blobUrl);
   };
-  img.src='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(str)));
+  img.src=blobUrl;
 }
 function dl(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; a.click(); }
 
 function printDiagram(){
-  const {str,W,H}=getExpSVG();
+  const {str}=getExpSVG();
   const win=window.open('','_blank');
+  if(!win){ alert('Браузер заблокировал всплывающее окно. Разрешите popup для печати.'); return; }
   win.document.write(`<!DOCTYPE html><html><head><title>Show Signal Flow</title>
     <style>body{margin:0;padding:20px;}@media print{body{margin:0;padding:0;}}</style></head>
-    <body><img src="data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(str)))}"
+    <body><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(str)}"
     style="max-width:100%;height:auto;display:block;"/></body></html>`);
   win.document.close();
   setTimeout(()=>{ win.focus(); win.print(); },400);
@@ -1902,7 +1898,21 @@ function printDiagram(){
 
 // ── EXPORT HTML (CLIENT VIEW) ─────────────────────────────
 function exportClientHTML(){
-  const state = JSON.stringify({nodes, edges, tcBuses, notes, zones});
+  // экранируем </script> чтобы JSON внутри <script> тега не ломал HTML
+  const state = JSON.stringify({nodes, edges, tcBuses, notes, zones})
+    .replace(/<\/script>/gi, '<\\/script>');
+
+  // Сериализуем общие функции чтобы не дублировать код
+  const _sharedFns = [
+    startDrag,
+    wrapText,
+    nodeH,
+    bpt,
+    nodeInZone,
+    collapsedZoneOf,
+    zoneBar,
+  ].map(f => f.toString()).join('\n');
+
   const IST_CLIENT = `
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:Arial,sans-serif;background:#f8f8f8;overflow:hidden;
@@ -1983,6 +1993,7 @@ function exportClientHTML(){
 <script>
 'use strict';
 const STATE = ${state};
+${_sharedFns}
 let nodes = STATE.nodes;
 let edges = STATE.edges;
 let tcBuses = STATE.tcBuses || (STATE.tc ? [{id:'tc1',y:STATE.tc.y,x1:STATE.tc.x1,x2:STATE.tc.x2,label:'LTC / MTC',color:'#555',visible:STATE.tcVisible!==false}] : [{id:'tc1',y:148,x1:30,x2:1900,label:'LTC / MTC',color:'#555',visible:true}]);
@@ -2029,28 +2040,6 @@ function zoomAt(mx,my,newZ){
   const wx=vb.x+mx/vb.z,wy=vb.y+my/vb.z;
   vb.z=newZ;vb.x=wx-mx/vb.z;vb.y=wy-my/vb.z;applyVB();
 }
-function wrapText(text,maxW,fontSize){
-  if(!text)return[];
-  const cpl=Math.floor(maxW/(fontSize*0.6));
-  if(text.length<=cpl)return[text];
-  const words=text.split(' '),lines=[];let cur='';
-  words.forEach(w=>{const t=cur?cur+' '+w:w;if(t.length<=cpl)cur=t;else{if(cur)lines.push(cur);cur=w;}});
-  if(cur)lines.push(cur);return lines;
-}
-function nodeH(n){
-  const LH=14,PAD=10;
-  const tl=wrapText(n.title||'',n.w-16,12);
-  const s1=wrapText(n.sub1||'',n.w-16,10);
-  const s2=wrapText(n.sub2||'',n.w-16,10);
-  return Math.max(n.h,(tl.length+s1.length+s2.length)*LH+PAD*2);
-}
-function bpt(n,tx,ty){
-  const h=nodeH(n);
-  const ox=n.x+n.w/2,oy=n.y+h/2,hw=n.w/2,hh=h/2,dx=tx-ox,dy=ty-oy;
-  if(!dx&&!dy)return{x:ox,y:oy};
-  const s=Math.min(dx?hw/Math.abs(dx):1e9,dy?hh/Math.abs(dy):1e9);
-  return{x:ox+dx*s,y:oy+dy*s};
-}
 function rZones(){
   ZL.innerHTML='';
   zones.forEach(z=>{
@@ -2082,14 +2071,17 @@ function rEdges(){
   edges.forEach(e=>{
     const fn=nb(e.from),tn=nb(e.to);if(!fn||!tn)return;
     if(!e.wp)e.wp=[];
-    const tnCx=tn.x+tn.w/2,tnCy=tn.y+nodeH(tn)/2;
-    const fnCx=fn.x+fn.w/2,fnCy=fn.y+nodeH(fn)/2;
-    const p1=e.wp.length?bpt(fn,e.wp[0].x,e.wp[0].y):bpt(fn,tnCx,tnCy);
-    const p2=e.wp.length?bpt(tn,e.wp[e.wp.length-1].x,e.wp[e.wp.length-1].y):bpt(tn,fnCx,fnCy);
-    const chain=[p1,...e.wp.map(p=>({...p})),p2];
+    const fz=collapsedZoneOf(fn),tz=collapsedZoneOf(tn);
+    if(fz&&tz&&fz===tz)return;
+    const effFn=fz?zoneBar(fz):fn, effTn=tz?zoneBar(tz):tn;
+    const useWP=!fz&&!tz?e.wp:[];
+    const tnCx=effTn.x+effTn.w/2,tnCy=effTn.y+effTn.h/2;
+    const fnCx=effFn.x+effFn.w/2,fnCy=effFn.y+effFn.h/2;
+    const p1=useWP.length?bpt(effFn,useWP[0].x,useWP[0].y):bpt(effFn,tnCx,tnCy);
+    const p2=useWP.length?bpt(effTn,useWP[useWP.length-1].x,useWP[useWP.length-1].y):bpt(effTn,fnCx,fnCy);
+    const chain=[p1,...useWP.map(p=>({...p})),p2];
     const pts=chain.map(p=>p.x+','+p.y).join(' ');
-    const ln=sa(mk('polyline'),{points:pts,class:'edge'+(e.style==='dashed'?' dashed':''),'marker-end':'url(#arr)',fill:'none'});
-    EL.appendChild(ln);
+    EL.appendChild(sa(mk('polyline'),{points:pts,class:'edge'+(e.style==='dashed'?' dashed':''),'marker-end':'url(#arr)',fill:'none'}));
     if(e.label){
       const mx=(chain[0].x+chain[chain.length-1].x)/2,my=(chain[0].y+chain[chain.length-1].y)/2;
       const lw=e.label.length*5.5+10;
@@ -2107,13 +2099,13 @@ function rTC(){
     TL.appendChild(sa(mk('line'),{x1:bus.x1,y1:bus.y,x2:bus.x2,y2:bus.y,class:'tc-rail',stroke:col,'stroke-width':'2','stroke-dasharray':'10,5'}));
     const lbl=sa(mk('text'),{x:bus.x1+10,y:bus.y-10,class:'tc-rail-lbl',fill:col});
     lbl.textContent='— — — '+(bus.label||'TIMECODE BUS')+' — — —';TL.appendChild(lbl);
-    nodes.filter(n=>n.tcOut&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))).forEach(n=>{
+    nodes.filter(n=>n.tcOut&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))&&!collapsedZoneOf(n)).forEach(n=>{
       const nx=cx(n);if(bus.y>=n.y-3)return;
       TL.appendChild(sa(mk('line'),{x1:nx,y1:n.y,x2:nx,y2:bus.y,stroke:'#333','stroke-width':'1.5','stroke-dasharray':'4,3'}));
       TL.appendChild(sa(mk('polygon'),{points:\`\${nx-4},\${bus.y+7} \${nx+4},\${bus.y+7} \${nx},\${bus.y}\`,fill:col}));
       const sl=sa(mk('text'),{x:nx+5,y:(n.y+bus.y)/2,class:'tc-lbl',fill:col});sl.textContent='TC out';TL.appendChild(sl);
     });
-    nodes.filter(n=>n.tc&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))).forEach(n=>{
+    nodes.filter(n=>n.tc&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))&&!collapsedZoneOf(n)).forEach(n=>{
       const nx=cx(n);if(bus.y>=n.y-3)return;
       TL.appendChild(sa(mk('line'),{x1:nx,y1:bus.y,x2:nx,y2:n.y,class:'tc-tap','marker-end':'url(#arr-sm)'}));
       const tl=sa(mk('text'),{x:nx+5,y:(bus.y+n.y)/2,class:'tc-lbl',fill:col});tl.textContent='TC';TL.appendChild(tl);
@@ -2152,9 +2144,9 @@ function rNodes(){
         const dx=(e.clientX-sx)/vb.z,dy=(e.clientY-sy)/vb.z;
         if(Math.abs(dx)>2||Math.abs(dy)>2){moved=true;n.x=Math.max(0,snx+dx);n.y=Math.max(0,sny+dy);rEdges();rTC();rNodes();}
       };
-      const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-      document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
+    if(collapsedZoneOf(n)) return;
     NL.appendChild(g);
   });
 }
@@ -2189,8 +2181,7 @@ function rNotes(){
       sx=ev.clientX;sy=ev.clientY;ox=note.x;oy=note.y;
       const mm=e=>{const dx=(e.clientX-sx)/vb.z,dy=(e.clientY-sy)/vb.z;
         if(Math.abs(dx)>2||Math.abs(dy)>2){note.x=Math.max(0,ox+dx);note.y=Math.max(0,oy+dy);rNotes();}};
-      const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-      document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);
+      startDrag(mm);
     });
     XL.appendChild(g);
   });
@@ -2206,8 +2197,7 @@ document.getElementById('cw').addEventListener('mousedown',ev=>{
     ev.preventDefault();panning=true;panStart={x:ev.clientX,y:ev.clientY};vbStart={x:vb.x,y:vb.y};
     document.body.classList.add('panning');
     const mm=e=>{vb.x=vbStart.x-(e.clientX-panStart.x)/vb.z;vb.y=vbStart.y-(e.clientY-panStart.y)/vb.z;applyVB();};
-    const mu=()=>{panning=false;document.body.classList.remove('panning');document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-    document.addEventListener('mousemove',mm);document.addEventListener('mouseup',mu);
+    startDrag(mm, ()=>{panning=false;document.body.classList.remove('panning');});
   }
 });
 document.getElementById('cw').addEventListener('wheel',ev=>{
@@ -2273,12 +2263,16 @@ function validateAndSanitize(s){
   if(!Array.isArray(s.nodes)) s.nodes=[];
   s.nodes=s.nodes.filter((n,i)=>{
     if(typeof n!=='object'||!n){ warn.push(`Нода [${i}]: не объект — пропущена`); return false; }
-    if(!n.id){ n.id='n'+(Date.now()+i); }
+    if(!n.id){ n.id='n'+crypto.randomUUID().split('-')[0]; }
     if(typeof n.x!=='number') n.x=0;
     if(typeof n.y!=='number') n.y=0;
     if(typeof n.w!=='number'||n.w<10) n.w=175;
     if(typeof n.h!=='number'||n.h<10) n.h=58;
-    if(!n.title) n.title='Нода';
+    // strip HTML-тегов чтобы исключить XSS при экспорте
+    const st=v=>typeof v==='string'?v.replace(/<[^>]*>/g,''):v;
+    n.title=st(n.title)||'Нода';
+    n.sub1=st(n.sub1||''); n.sub2=st(n.sub2||'');
+    if(n.label) n.label=st(n.label);
     n.style=n.style||'normal';
     if(!Array.isArray(n.tc)) n.tc=!!n.tc; // boolean
     if(!n.wp) n.wp=undefined;
@@ -2290,21 +2284,24 @@ function validateAndSanitize(s){
   s.nodes.forEach(n=>{
     if(_seenN.has(n.id)){
       const old=n.id;
-      n.id='n'+Date.now()+Math.random().toString(36).slice(2,6);
+      n.id='n'+crypto.randomUUID().split('-')[0];
       warn.push(`Нода «${old}»: дублирующийся ID — переименована в «${n.id}»`);
     }
     _seenN.add(n.id);
   });
 
-  // edges — удаляем ссылки на несуществующие ноды
+  // edges — удаляем ссылки на несуществующие ноды, петли, невалидные waypoints
   const nodeIds=new Set(s.nodes.map(n=>n.id));
   if(!Array.isArray(s.edges)) s.edges=[];
   s.edges=s.edges.filter((e,i)=>{
     if(typeof e!=='object'||!e){ warn.push(`Связь [${i}]: не объект — пропущена`); return false; }
     if(!e.id||!e.from||!e.to){ warn.push(`Связь [${i}]: нет id/from/to — пропущена`); return false; }
+    if(e.from===e.to){ warn.push(`Связь ${e.id}: петля (from===to) — пропущена`); return false; }
     if(!nodeIds.has(e.from)){ warn.push(`Связь ${e.id}: нода «${e.from}» не найдена — пропущена`); return false; }
     if(!nodeIds.has(e.to)){ warn.push(`Связь ${e.id}: нода «${e.to}» не найдена — пропущена`); return false; }
+    // waypoints: оставляем только валидные {x:number, y:number}
     if(!Array.isArray(e.wp)) e.wp=[];
+    e.wp=e.wp.filter(p=>p&&typeof p.x==='number'&&typeof p.y==='number');
     e.style=e.style||'solid';
     return true;
   });
@@ -2314,7 +2311,7 @@ function validateAndSanitize(s){
   s.edges.forEach(e=>{
     if(_seenE.has(e.id)){
       const old=e.id;
-      e.id='e'+Date.now()+Math.random().toString(36).slice(2,6);
+      e.id='e'+crypto.randomUUID().split('-')[0];
       warn.push(`Связь «${old}»: дублирующийся ID — переименована в «${e.id}»`);
     }
     _seenE.add(e.id);
@@ -2353,19 +2350,9 @@ function validateAndSanitize(s){
   return warn;
 }
 
-function syncUID(nodeList){
-  // Сдвигаем UID за максимальный числовой ID нод, чтобы не было коллизий
-  if(!Array.isArray(nodeList)) return;
-  nodeList.forEach(n=>{
-    const m=n.id&&n.id.match(/^n(\d+)/);
-    if(m){ const v=parseInt(m[1],10); if(v>=UID) UID=v+1; }
-  });
-}
-
 function applyState(s){
   if(s.nodes) nodes = s.nodes;
   if(s.edges) edges = s.edges;
-  syncUID(nodes);
   _restoreTCBuses(s);
   if(s.notes) notes = s.notes; else notes = [];
   if(s.zones) zones = s.zones; else zones = [];
@@ -2595,14 +2582,10 @@ document.getElementById('cw').addEventListener('mousedown', ev=>{
       vb.y = vbStart.y - (e.clientY-panStart.y)/vb.z;
       applyVB();
     };
-    const mu=()=>{
+    startDrag(mm, ()=>{
       panning=false;
       document.body.classList.remove('panning');
-      document.removeEventListener('mousemove',mm);
-      document.removeEventListener('mouseup',mu);
-    };
-    document.addEventListener('mousemove',mm);
-    document.addEventListener('mouseup',mu);
+    });
   }
 });
 
@@ -3037,19 +3020,23 @@ function rHistory(){
 function histJump(undoN, redoN){
   for(let i=0; i<undoN; i++){
     if(!undoStack.length) break;
-    redoStack.push(JSON.stringify({nodes,edges,tcBuses,notes,zones}));
+    redoStack.push(JSON.stringify({nodes,edges,tcBuses,notes,zones,customDeviceTypes}));
     redoLabels.push(undoLabels[undoLabels.length-1]);
     const s=JSON.parse(undoStack.pop()); undoLabels.pop();
     nodes=s.nodes; edges=s.edges; _restoreTCBuses(s);
     notes=s.notes||[]; zones=s.zones||[];
+    customDeviceTypes=s.customDeviceTypes||[];
+    rebuildDevTypeSelects();
   }
   for(let i=0; i<redoN; i++){
     if(!redoStack.length) break;
-    undoStack.push(JSON.stringify({nodes,edges,tcBuses,notes,zones}));
+    undoStack.push(JSON.stringify({nodes,edges,tcBuses,notes,zones,customDeviceTypes}));
     undoLabels.push(redoLabels[redoLabels.length-1]);
     const s=JSON.parse(redoStack.pop()); redoLabels.pop();
     nodes=s.nodes; edges=s.edges; _restoreTCBuses(s);
     notes=s.notes||[]; zones=s.zones||[];
+    customDeviceTypes=s.customDeviceTypes||[];
+    rebuildDevTypeSelects();
   }
   rAll();
 }
@@ -3154,9 +3141,7 @@ function rMinimap(){
     ev.stopPropagation();
     navigate(ev);
     const mm=e=>navigate(e);
-    const mu=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',mu);};
-    document.addEventListener('mousemove',mm);
-    document.addEventListener('mouseup',mu);
+    startDrag(mm);
   });
 })();
 
