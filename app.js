@@ -2812,15 +2812,16 @@ const _NET_PROFILES = [
   {
     id: 'artnet',
     name: 'ArtNet / sACN — Свет, DMX',
-    // Art-Net 4 Spec §4: modern standard 10.x.x.x/8 (legacy: 2.x.x.x/8).
-    // Вся световая сеть — одна /8 чтобы все видели друг друга через broadcast.
-    // GrandMA3 по умолчанию: 10.x.x.x; ETC EOS поддерживает оба стандарта.
-    // sACN (E1.31) сосуществует в той же подсети, multicast 239.255.x.x.
-    desc: 'GrandMA2/3, ETC EOS/Ion, Avolites, ChamSys MQ, Hog, DMX-ноды, Enttec, лазеры, LED',
+    // Art-Net 4 Spec §4: modern standard 10.x.x.x/8 (legacy: 2.x.x.x/8, GrandMA2 default).
+    // Вся световая сеть — одна /8 чтобы все видели друг друга broadcast'ом.
+    // GrandMA2 дефолт: 2.x.x.x; GrandMA3 — оба; ETC Eos предпочитает sACN.
+    // ArtNet НЕ требует шлюза — это flat broadcast сеть без маршрутизации.
+    // sACN (E1.31) сосуществует в той же подсети, multicast 239.255.0.U.
+    desc: 'GrandMA2 (2.x.x.x default), GrandMA3, Avolites, ChamSys MQ, Hog — ETC Eos/Ion предпочитают sACN в той же сети',
     subnet: '10.0.0',
     mask: '/8',
     maskDot: '255.0.0.0',
-    gw: '10.0.0.1',
+    gw: '',            // ArtNet не требует шлюза — broadcast /8, нет маршрутизации
     ipStart: 10,
     color: '#f59e0b',
     kw: ['artnet','arnet','dmx','свет','light','lighting','пульт света','световой',
@@ -2923,28 +2924,129 @@ const _NET_PROFILES = [
   }
 ];
 
+// VLAN-режим (QLab Cookbook + Yamaha Dante Network Design Guide):
+// VLAN 10 → ArtNet/sACN  10.10.0.0/16
+// VLAN 20 → Dante primary 10.20.0.0/24
+// VLAN 21 → Dante secondary 10.21.0.0/24 (настраивается вручную)
+// VLAN 30 → NDI/Video      10.30.0.0/16
+// VLAN 40 → Show Control   10.40.0.0/24
+// VLAN 50 → Management/Intercom 10.50.0.0/24
+const _NET_PROFILES_VLAN = [
+  {
+    id: 'artnet',
+    name: 'VLAN 10 · ArtNet / sACN — Свет',
+    desc: 'GrandMA2/3, ETC Eos/Ion, Avolites, ChamSys, Hog — VLAN 10 · 10.10.0.0/16',
+    subnet: '10.10.0',
+    mask: '/16',
+    maskDot: '255.255.0.0',
+    gw: '',            // ArtNet не требует шлюза — плоская /8 (или /16 в VLAN-режиме)
+    ipStart: 10,
+    color: '#f59e0b',
+    kw: _NET_PROFILES.find(p=>p.id==='artnet').kw
+  },
+  {
+    id: 'ndi',
+    name: 'VLAN 30 · NDI / Video — Видео',
+    desc: 'Resolume, Disguise, Watchout, NDI-камеры — VLAN 30 · 10.30.0.0/16',
+    subnet: '10.30.0',
+    mask: '/16',
+    maskDot: '255.255.0.0',
+    gw: '10.30.0.1',
+    ipStart: 10,
+    color: '#06b6d4',
+    kw: _NET_PROFILES.find(p=>p.id==='ndi').kw
+  },
+  {
+    id: 'dante',
+    name: 'VLAN 20 · Dante / AES67 — Аудио',
+    desc: 'Yamaha CL/QL, Allen&Heath dLive, DiGiCo, Midas — VLAN 20 · 10.20.0.0/24 · QoS DSCP EF(46)',
+    subnet: '10.20.0',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '10.20.0.1',
+    ipStart: 10,
+    color: '#10b981',
+    kw: _NET_PROFILES.find(p=>p.id==='dante').kw
+  },
+  {
+    id: 'osc',
+    name: 'VLAN 40 · OSC / Control — Управление',
+    desc: 'QLab, TouchDesigner, Medialon, Crestron — VLAN 40 · 10.40.0.0/24',
+    subnet: '10.40.0',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '10.40.0.1',
+    ipStart: 10,
+    color: '#8b5cf6',
+    kw: _NET_PROFILES.find(p=>p.id==='osc').kw
+  },
+  {
+    id: 'intercom',
+    name: 'VLAN 50 · Intercom — Интерком',
+    desc: 'Riedel, Clear-Com FreeSpeak, Pliant — VLAN 50 · 10.50.0.0/24',
+    subnet: '10.50.0',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '10.50.0.1',
+    ipStart: 10,
+    color: '#ec4899',
+    kw: _NET_PROFILES.find(p=>p.id==='intercom').kw
+  },
+  {
+    id: 'general',
+    name: 'VLAN 50 · Прочие устройства',
+    desc: 'Устройства без явного протокола — Management VLAN 50',
+    subnet: '10.50.1',
+    mask: '/24',
+    maskDot: '255.255.255.0',
+    gw: '10.50.0.1',
+    ipStart: 10,
+    color: '#6b7280',
+    kw: []
+  }
+];
+
+function _activeProfiles(){
+  return window._anNetMode === 'vlan' ? _NET_PROFILES_VLAN : _NET_PROFILES;
+}
+
 function _detectNodeProfile(n){
   const text = ((n.devType||'') + ' ' + (n.title||'') + ' ' + (n.sub1||'')).toLowerCase();
+  const profiles = _activeProfiles();
   // приоритет: artnet > dante > ndi > osc > intercom > general
-  for(const p of _NET_PROFILES){
+  for(const p of profiles){
     if(!p.kw.length) continue;
     if(p.kw.some(k => text.includes(k))) return p;
   }
-  return _NET_PROFILES.find(p => p.id === 'general');
+  return profiles.find(p => p.id === 'general');
 }
 
 function _ipFromProfile(profile, idx){
   const oct = profile.ipStart + idx;
+  // /8 — ArtNet flat network
   if(profile.mask === '/8'){
-    // ArtNet /8: пользователь выбрал 10.x или 2.x (legacy)
+    const isVlan = window._anNetMode === 'vlan';
+    if(isVlan){
+      // VLAN режим: 10.10.0.x, overflow → 10.10.1.x
+      const lo3 = Math.floor(oct / 254);
+      const lo4 = (oct % 254) + 1;
+      return `10.10.${lo3}.${lo4}`;
+    }
+    // Простой режим: 2.x.x.x или 10.x.x.x
     const base = (window._anArtnetBase === '2') ? '2' : '10';
     const hi   = Math.floor(oct / 254);
     const lo   = (oct % 254) + 1;
     return `${base}.${hi}.0.${lo}`;
   }
-  // /24: subnet.xxx
+  // /16
+  if(profile.mask === '/16'){
+    const lo3 = Math.floor(oct / 254);
+    const lo4 = (oct % 254) + 1;
+    const parts = profile.subnet.split('.');
+    return `${parts[0]}.${parts[1]}.${lo3}.${lo4}`;
+  }
+  // /24: subnet.xxx, overflow → следующий блок
   if(oct > 253){
-    // переполнение — переходим на следующий блок /24
     const parts = profile.subnet.split('.');
     const newThird = (parseInt(parts[2],10) + Math.floor(oct/254)) % 256;
     return `${parts[0]}.${parts[1]}.${newThird}.${(oct%254)+1}`;
@@ -2983,7 +3085,8 @@ function _analyzeNet(){
 
 // Показать диалог авто-сети
 function showAutoNetDialog(){
-  window._anArtnetBase = window._anArtnetBase || '10';
+  window._anArtnetBase  = window._anArtnetBase  || '10';
+  window._anNetMode     = window._anNetMode     || 'simple';
   const {plan, skip} = _analyzeNet();
   if(!nodes.length){
     alert('Нет устройств в схеме. Добавьте ноды и зоны сначала.');

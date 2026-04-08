@@ -1624,17 +1624,28 @@ body.dark-theme #qed .qed-props{background:#333;color:#ccc;}
       в стандартных подсетях для каждого протокола шоу-сети.
       После применения все адреса доступны для ручного редактирования.
     </div>
-    <div style="padding:6px 18px 0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span style="font-size:11px;color:#555;">ArtNet диапазон:</span>
-      <label style="font-size:11px;color:#aaa;cursor:pointer;">
-        <input type="radio" name="an-artnet" value="10" checked onchange="window._anArtnetBase=this.value;showAutoNetDialog()">
-        <span style="font-family:monospace;color:#f59e0b;">10.x.x.x</span>
-        <span style="color:#555;"> (Art-Net 4, рекомендован)</span>
+    <div style="padding:8px 18px 0;display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-top:1px solid #1a1a2e;margin-top:6px;">
+      <span style="font-size:11px;color:#555;white-space:nowrap;">Режим:</span>
+      <label style="font-size:11px;color:#aaa;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <input type="radio" name="an-mode" value="simple" checked onchange="window._anNetMode=this.value;showAutoNetDialog()">
+        <span>Простой</span>
+        <span style="color:#555;"> (192.168.x.x)</span>
       </label>
-      <label style="font-size:11px;color:#aaa;cursor:pointer;">
+      <label style="font-size:11px;color:#aaa;cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <input type="radio" name="an-mode" value="vlan" onchange="window._anNetMode=this.value;showAutoNetDialog()">
+        <span style="color:#f59e0b;">VLAN</span>
+        <span style="color:#555;"> (10.10/20/30/40.x — профессиональный)</span>
+      </label>
+      <span style="width:1px;height:16px;background:#2a2a44;"></span>
+      <span style="font-size:11px;color:#555;white-space:nowrap;" id="an-artnet-label">ArtNet:</span>
+      <label style="font-size:11px;color:#aaa;cursor:pointer;display:flex;align-items:center;gap:4px;" id="an-artnet-opt">
+        <input type="radio" name="an-artnet" value="10" checked onchange="window._anArtnetBase=this.value;showAutoNetDialog()">
+        <span style="font-family:monospace;color:#f59e0b;">10.x</span>
+      </label>
+      <label style="font-size:11px;color:#aaa;cursor:pointer;display:flex;align-items:center;gap:4px;">
         <input type="radio" name="an-artnet" value="2" onchange="window._anArtnetBase=this.value;showAutoNetDialog()">
-        <span style="font-family:monospace;color:#f59e0b;">2.x.x.x</span>
-        <span style="color:#555;"> (legacy, старые пульты)</span>
+        <span style="font-family:monospace;color:#f59e0b;">2.x</span>
+        <span style="color:#555;">(legacy GrandMA2)</span>
       </label>
     </div>
     <div id="autonet-body"></div>
