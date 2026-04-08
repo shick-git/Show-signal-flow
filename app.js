@@ -428,26 +428,32 @@ function rTC(){
     });
     TL.appendChild(dh);
 
-    // TC OUT nodes: arrow FROM node TOP up to bus
+    // TC OUT nodes: arrow FROM node (or zone bar) TOP up to bus
+    const tcOutSeen=new Set();
     nodes.filter(n=>n.tcOut&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))).forEach(n=>{
-      const nx=cx(n);
-      if(bus.y>=n.y-3) return;
-      TL.appendChild(sa(mk('line'),{x1:nx,y1:n.y,x2:nx,y2:bus.y,stroke:'#333','stroke-width':'1.5','stroke-dasharray':'4,3'}));
+      const z=collapsedZoneOf(n);
+      const nx = z ? z.x+z.w/2 : cx(n);
+      const ny = z ? z.y : n.y;
+      if(z){ if(tcOutSeen.has(z)) return; tcOutSeen.add(z); }
+      if(bus.y>=ny-3) return;
+      TL.appendChild(sa(mk('line'),{x1:nx,y1:ny,x2:nx,y2:bus.y,stroke:'#333','stroke-width':'1.5','stroke-dasharray':'4,3'}));
       TL.appendChild(sa(mk('polygon'),{points:`${nx-4},${bus.y+7} ${nx+4},${bus.y+7} ${nx},${bus.y}`,fill:col}));
-      const sl=sa(mk('text'),{x:nx+5,y:(n.y+bus.y)/2,class:'tc-lbl',fill:col}); sl.textContent='TC out'; TL.appendChild(sl);
+      const sl=sa(mk('text'),{x:nx+5,y:(ny+bus.y)/2,class:'tc-lbl',fill:col}); sl.textContent='TC out'; TL.appendChild(sl);
     });
 
-    // TC IN nodes: arrow FROM bus DOWN to node
+    // TC IN nodes: arrow FROM bus DOWN to node (or zone bar)
+    const tcInSeen=new Set();
     nodes.filter(n=>n.tc&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))).forEach(n=>{
-      const nx=cx(n);
-      if(bus.y>=n.y-3) return;
-      const isTarget = _dropTCTap && _dropTCTap.id===n.id;
-      const tap=sa(mk('line'),{x1:nx,y1:bus.y,x2:nx,y2:n.y,
-        class:'tc-tap'+(isTarget?' tc-drop':''),'marker-end':'url(#arr-sm)'});
-      TL.appendChild(tap);
-      const tl=sa(mk('text'),{x:nx+5,y:(bus.y+n.y)/2,class:'tc-lbl',fill:col});
-      tl.textContent=isTarget?'⬅ вставить':'TC';
-      TL.appendChild(tl);
+      const z=collapsedZoneOf(n);
+      const nx = z ? z.x+z.w/2 : cx(n);
+      const ny = z ? z.y : n.y;
+      if(z){ if(tcInSeen.has(z)) return; tcInSeen.add(z); }
+      if(bus.y>=ny-3) return;
+      const isTarget = !z && _dropTCTap && _dropTCTap.id===n.id;
+      TL.appendChild(sa(mk('line'),{x1:nx,y1:bus.y,x2:nx,y2:ny,
+        class:'tc-tap'+(isTarget?' tc-drop':''),'marker-end':'url(#arr-sm)'}));
+      const tl=sa(mk('text'),{x:nx+5,y:(bus.y+ny)/2,class:'tc-lbl',fill:col});
+      tl.textContent=isTarget?'⬅ вставить':'TC'; TL.appendChild(tl);
     });
   });
 }
@@ -455,6 +461,13 @@ function rTC(){
 // ═══════════════════════════════════════════════════════════
 // RENDER EDGES
 // ═══════════════════════════════════════════════════════════
+// возвращает свёрнутую зону в которой находится нода, или null
+function collapsedZoneOf(n){
+  return zones.find(z=>z.collapsed&&nodeInZone(n,z))||null;
+}
+// «виртуальная нода» для центра полосы свёрнутой зоны
+function zoneBar(z){ return {x:z.x,y:z.y,w:z.w,h:26}; }
+
 function rEdges(){
   const seen=new Set();
   edges.forEach(e=>{
@@ -462,12 +475,23 @@ function rEdges(){
     if(!e.wp) e.wp=[];
     seen.add(e.id);
 
-    // build point chain
-    const tnCx=tn.x+tn.w/2, tnCy=tn.y+nodeH(tn)/2;
-    const fnCx=fn.x+fn.w/2, fnCy=fn.y+nodeH(fn)/2;
-    const p1 = e.wp.length ? bpt(fn,e.wp[0].x,e.wp[0].y) : bpt(fn,tnCx,tnCy);
-    const p2 = e.wp.length ? bpt(tn,e.wp[e.wp.length-1].x,e.wp[e.wp.length-1].y) : bpt(tn,fnCx,fnCy);
-    const chain=[p1,...e.wp.map(p=>({...p})),p2];
+    const fz=collapsedZoneOf(fn);
+    const tz=collapsedZoneOf(tn);
+
+    // оба конца в одной свёрнутой зоне — скрываем
+    if(fz&&tz&&fz===tz){ seen.delete(e.id); return; }
+
+    // подменяем ноду на зону-бар если нода свёрнута
+    const effFn = fz ? zoneBar(fz) : fn;
+    const effTn = tz ? zoneBar(tz) : tn;
+
+    // build point chain (waypoints игнорируем если концы перенаправлены на зону)
+    const useWP = !fz && !tz ? e.wp : [];
+    const tnCx=effTn.x+effTn.w/2, tnCy=effTn.y+effTn.h/2;
+    const fnCx=effFn.x+effFn.w/2, fnCy=effFn.y+effFn.h/2;
+    const p1 = useWP.length ? bpt(effFn,useWP[0].x,useWP[0].y) : bpt(effFn,tnCx,tnCy);
+    const p2 = useWP.length ? bpt(effTn,useWP[useWP.length-1].x,useWP[useWP.length-1].y) : bpt(effTn,fnCx,fnCy);
+    const chain=[p1,...useWP.map(p=>({...p})),p2];
     const pts=chain.map(p=>p.x+','+p.y).join(' ');
 
     // ── кеш: g и hit создаются один раз, listeners не пересоздаются ──
@@ -620,7 +644,13 @@ function rNodes(){
     });
     g.appendChild(rh);
 
-    NL.appendChild(g);
+    // скрываем ноду если она внутри свёрнутой зоны
+    const inCollapsed = zones.some(z => z.collapsed && nodeInZone(n, z));
+    if(inCollapsed){
+      g.remove(); // убираем из DOM если была видна
+    } else {
+      NL.appendChild(g);
+    }
   });
 
   // удаляем группы удалённых нод
@@ -761,7 +791,7 @@ function rZones(){
       cbtn.addEventListener('click',ev=>{
         ev.stopPropagation();
         snapshot('Свернуть зону');
-        z.collapsed=true; rZones();
+        z.collapsed=true; rAll();
       });
       g.appendChild(cbtn);
 
@@ -798,7 +828,7 @@ function rZones(){
       ebtn.addEventListener('click',ev=>{
         ev.stopPropagation();
         snapshot('Развернуть зону');
-        z.collapsed=false; rZones();
+        z.collapsed=false; rAll();
       });
       g.appendChild(ebtn);
     }
