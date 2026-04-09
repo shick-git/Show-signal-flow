@@ -3234,31 +3234,135 @@ function showAutoNetDialog(){
   window._autoNetPlan = {plan, skip};
 }
 
-function applyAutoNet(overrideAll){
-  const {plan, skip} = window._autoNetPlan || {};
-  if(!plan) return;
+function previewOverrideAll(){
+  // Строим предварительный план для всех нод
+  const profiles = _activeProfiles();
+  const counters = {};
+  profiles.forEach(p => counters[p.id] = 0);
 
-  let toApply = [...plan];
-  if(overrideAll){
-    // переназначаем все ноды включая уже настроенные
-    const counters = {};
-    _activeProfiles().forEach(p => counters[p.id] = 0);
-    toApply = nodes.map(n => {
-      const profile = _detectNodeProfile(n);
-      const idx = counters[profile.id]++;
-      return {node: n, profile, ip: _ipFromProfile(profile, idx), mask: profile.mask, gw: profile.gw};
-    });
-  }
-
-  snapshot('Авто-сеть: назначить IP');
-  toApply.forEach(item => {
-    item.node.ip   = item.ip;
-    item.node.mask = item.mask;
-    item.node.gw   = item.gw;
+  const fullPlan = nodes.map(n => {
+    const profile = _detectNodeProfile(n);
+    const idx = counters[profile.id]++;
+    return {
+      node: n,
+      profile,
+      ip:   _ipFromProfile(profile, idx),
+      mask: profile.mask,
+      gw:   profile.gw
+    };
   });
-  closeAutoNetDialog();
-  renderNetPanel();
-  log(`Авто-сеть: назначено ${toApply.length} IP-адресов`);
+
+  // Группируем по профилю и показываем в диалоге
+  const byProfile = {};
+  profiles.forEach(p => byProfile[p.id] = []);
+  fullPlan.forEach(item => byProfile[item.profile.id].push(item));
+
+  let sectionsHTML = '';
+  profiles.forEach(p => {
+    const items = byProfile[p.id];
+    if(!items.length) return;
+    const rows = items.map(item => {
+      const changed = item.node.ip !== item.ip || item.node.mask !== item.mask;
+      const z = zones.find(z => nodeInZone(item.node, z));
+      const zn = z ? `<span style="color:#555;font-size:10px;"> · ${z.title||'Зона'}</span>` : '';
+      const oldIP = item.node.ip ? `<span style="color:#555;text-decoration:line-through;font-size:10px;margin-right:4px;">${item.node.ip}</span>` : '';
+      return `<div class="an-row">
+        <span class="an-dot" style="background:${p.color}"></span>
+        <span class="an-name">${item.node.title||item.node.id}${zn}</span>
+        ${oldIP}<span class="an-ip" style="${changed?'color:#fbbf24':''}">${item.ip}</span>
+        <span class="an-mask">${item.mask}</span>
+      </div>`;
+    }).join('');
+    sectionsHTML += `<div class="an-section">
+      <div class="an-section-hdr" style="border-left:3px solid ${p.color}">
+        <span style="color:${p.color};font-weight:600;">${p.name}</span>
+        <span class="an-section-badge">${items.length} устр.</span>
+      </div>${rows}</div>`;
+  });
+
+  document.getElementById('autonet-body').innerHTML = `
+    <div class="an-summary" style="background:#2a1a0a;border:1px solid #f59e0b44;">
+      ↺ Переназначить всё: <b>${fullPlan.length}</b> устройств получат новые IP
+      <div style="font-size:11px;color:#888;margin-top:3px;">Зачёркнутый = старый IP · Жёлтый = изменится</div>
+    </div>
+    <div class="an-sections">${sectionsHTML}</div>`;
+
+  // Меняем кнопки — теперь "Подтвердить"
+  document.querySelector('.an-footer').innerHTML = `
+    <button class="an-btn-apply" style="background:#ef4444;" onclick="applyAutoNet(true)">⚠ Подтвердить переназначение</button>
+    <button class="an-btn-all" onclick="showAutoNetDialog()">← Назад</button>
+    <button class="an-btn-cancel" onclick="closeAutoNetDialog()">Отмена</button>`;
+
+  // Сохраняем fullPlan для applyAutoNet
+  window._autoNetOverridePlan = fullPlan;
+}
+
+function applyAutoNet(overrideAll){
+  try {
+    // Строим список того что нужно применить
+    const profiles = _activeProfiles();
+    const counters = {};
+    profiles.forEach(p => counters[p.id] = 0);
+
+    let toApply;
+    if(overrideAll){
+      // Берём готовый план из previewOverrideAll (или строим заново)
+      const src = window._autoNetOverridePlan || nodes.map(n => {
+        const profile = _detectNodeProfile(n);
+        const idx     = counters[profile.id]++;
+        return { node: n, ip: _ipFromProfile(profile, idx), mask: profile.mask, gw: profile.gw };
+      });
+      toApply = src.map(item => ({
+        id:   item.node ? item.node.id : item.id,
+        ip:   item.ip,
+        mask: item.mask,
+        gw:   item.gw
+      }));
+      window._autoNetOverridePlan = null;
+    } else {
+      // Только ноды без IP из сохранённого плана
+      const {plan} = window._autoNetPlan || {};
+      if(!plan || !plan.length){
+        alert('Нет устройств для назначения. Все уже настроены — используй «Переназначить всё».');
+        return;
+      }
+      toApply = plan.map(item => ({
+        id:   item.node.id,
+        ip:   item.ip,
+        mask: item.mask,
+        gw:   item.gw
+      }));
+    }
+
+    if(!toApply.length){ closeAutoNetDialog(); return; }
+
+    snapshot('Авто-сеть: назначить IP');
+
+    // Применяем через nb() — гарантированно находим актуальный объект ноды
+    let applied = 0;
+    toApply.forEach(item => {
+      const n = nb(item.id);
+      if(!n) return;
+      n.ip   = item.ip;
+      n.mask = item.mask;
+      n.gw   = item.gw;
+      applied++;
+    });
+
+    closeAutoNetDialog();
+
+    // Гарантируем что net-panel видна и перерисована
+    if(document.getElementById('net-panel').style.display === 'none'){
+      showNetPanel();
+    } else {
+      renderNetPanel();
+    }
+
+    console.log(`[AutoNet] Применено ${applied} IP-адресов (режим: ${window._anNetMode}, overrideAll=${overrideAll})`);
+  } catch(e) {
+    console.error('[AutoNet] Ошибка:', e);
+    alert('Ошибка авто-сети: ' + e.message);
+  }
 }
 
 function closeAutoNetDialog(){
@@ -3665,10 +3769,11 @@ function exportNetPatch(){
 
   const devsJson = JSON.stringify(devs);
 
-  const hta = `<html>
+  const hta = `\uFEFF<html>
 <head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta http-equiv="x-ua-compatible" content="ie=11">
-<title>Network Patch \u2014 ${projectName}</title>
+<title>Network Patch &#8212; ${projectName}</title>
 <HTA:APPLICATION
   APPLICATIONNAME="Network Patch"
   BORDER="thin"
@@ -3954,7 +4059,7 @@ window.onload=function(){
 </body>
 </html>`;
 
-  dl(URL.createObjectURL(new Blob([hta],{type:'text/html'})), 'network-patch.hta');
+  dl(URL.createObjectURL(new Blob([hta],{type:'text/html;charset=utf-8'})), 'network-patch.hta');
   log('Экспортирован network-patch.hta ('+devs.length+' устройств)');
 }
 
