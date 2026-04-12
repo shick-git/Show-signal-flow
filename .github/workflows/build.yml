@@ -15,8 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: 'npm'
+          node-version: 20
 
       - run: npm ci
 
@@ -36,20 +35,26 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: 'npm'
+          node-version: 20
 
       - run: npm ci
 
-      - name: Build macOS
-        run: npx electron-builder --mac zip --publish never
+      - name: Build macOS x64
+        run: npx electron-builder --mac zip --x64 --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-      - name: Ad-hoc sign app bundle
+      - name: Build macOS arm64
+        run: npx electron-builder --mac zip --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Ad-hoc sign all app bundles
         run: |
-          APP=$(find dist/mac -name "*.app" | head -1)
-          codesign --deep --force --sign - "$APP"
+          find dist -name "*.app" -type d | while IFS= read -r APP; do
+            echo "Signing: $APP"
+            codesign --deep --force --sign - "$APP"
+          done
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
