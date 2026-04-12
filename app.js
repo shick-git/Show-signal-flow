@@ -39,6 +39,8 @@ const uid = () => 'n' + crypto.randomUUID().split('-')[0];
 // ─── DOM кеши: listeners создаются один раз, не при каждом rNodes/rEdges ──
 const _ngCache = new Map(); // nodeId  → <g> элемент
 const _egCache = new Map(); // edgeId  → {g, hit}
+const _ntCache = new Map(); // noteId  → <g> элемент (P4)
+const _zcCache = new Map(); // zoneId  → <g> элемент (P4)
 
 const DN = [
   {id:'notebook', x:60,   y:230, w:155,h:50, title:'NOTEBOOK',          sub1:'Reaper · Timecode Source', sub2:'',                      style:'normal',   deviceType:'timecode',      tcSource:'Reaper',  tcOut:true,  tc:false},
@@ -230,7 +232,7 @@ function addTCBus(){
   snapshot('Добавить TC шину');
   const colors=['#555','#4a9eff','#ff9900','#cc4444','#22aa66','#aa66cc'];
   tcBuses.push({
-    id:'tc'+Date.now(),
+    id:'tc'+uid(),
     y: tcBuses[tcBuses.length-1].y + 120,
     x1:30, x2:1900,
     label:'TC Bus '+(tcBuses.length+1),
@@ -313,7 +315,7 @@ function saveCDT(){
     const c = customDeviceTypes.find(x=>x.id===_editingCDT);
     if(c){ c.label=label; c.color=color; }
   } else {
-    const id = 'cdt-'+Date.now();
+    const id = 'cdt-'+uid();
     customDeviceTypes.push({id, label, color});
   }
   _editingCDT = null;
@@ -602,9 +604,8 @@ function rNodes(){
   const seen=new Set();
   nodes.forEach(n=>{
     seen.add(n.id);
-    const titleLines = wrapText(n.title||'', n.w-16, 12);
-    const sub1Lines  = wrapText(n.sub1||'',  n.w-16, 10);
-    const sub2Lines  = wrapText(n.sub2||'',  n.w-16, 10);
+    // P2: берём из кеша — wrapText не пересчитывается если текст/ширина не изменились
+    const {t:titleLines, s1:sub1Lines, s2:sub2Lines} = getCachedWrap(n);
     const LH=14, PAD=10;
     const totalLines = titleLines.length + sub1Lines.length + sub2Lines.length;
     const autoH = Math.max(n.h, totalLines*LH + PAD*2);
@@ -699,29 +700,49 @@ function rNodes(){
 // RENDER NOTES
 // ═══════════════════════════════════════════════════════════
 function rNotes(){
-  XL.innerHTML='';
+  // P4: удаляем <g> удалённых заметок
+  for(const [id,g] of _ntCache){
+    if(!notes.find(n=>n.id===id)){ _ntCache.delete(id); g.remove(); }
+  }
   notes.forEach(note=>{
-    const g=mk('g'); g.setAttribute('class','note-group'); g.dataset.xid=note.id;
-
-    // background rect
+    let g=_ntCache.get(note.id);
+    if(!g){
+      // Создаём <g> и привязываем listeners ОДИН РАЗ
+      g=mk('g'); g.setAttribute('class','note-group'); g.dataset.xid=note.id;
+      let moved=false;
+      g.addEventListener('mousedown',ev=>{
+        if(ev.button||mode==='connect') return;
+        ev.stopPropagation(); ev.preventDefault();
+        const sx=ev.clientX,sy=ev.clientY,ox=note.x,oy=note.y; moved=false;
+        const mm=e=>{
+          const d=svgDelta(e.clientX-sx,e.clientY-sy);
+          if(Math.abs(d.dx)>2||Math.abs(d.dy)>2){
+            if(!moved){snapshot('Переместить заметку');moved=true;}
+            note.x=snap(Math.max(0,ox+d.dx));
+            note.y=snap(Math.max(0,oy+d.dy));
+            rNotes();
+          }
+        };
+        startDrag(mm);
+      });
+      g.addEventListener('dblclick',ev=>{ev.stopPropagation(); openNoteEditor(note,ev);});
+      _ntCache.set(note.id, g);
+    }
+    // Перестраиваем визуальные дочерние элементы
+    while(g.firstChild) g.removeChild(g.firstChild);
     const PAD=8, LH=15;
     const lines=wrapText(note.text||'', note.w-PAD*2, 11);
     const minH=Math.max(note.h, lines.length*LH+PAD*2+4);
-    const rect=sa(mk('rect'),{
+    g.appendChild(sa(mk('rect'),{
       x:note.x, y:note.y, width:note.w, height:minH, rx:4,
       fill:note.color||'#fffbe6', class:'note-rect'
-    });
-    g.appendChild(rect);
-
-    // text lines
+    }));
     let curY=note.y+PAD+LH/2;
     lines.forEach(l=>{
-      const t=sa(mk('text'),{x:note.x+PAD, y:curY, class:'note-text',
-        'dominant-baseline':'middle'});
+      const t=sa(mk('text'),{x:note.x+PAD, y:curY, class:'note-text', 'dominant-baseline':'middle'});
       t.textContent=l; g.appendChild(t); curY+=LH;
     });
-
-    // resize handle
+    // resize handle (listener пересоздаётся, т.к. захватывает minH)
     const rh=sa(mk('rect'),{
       x:note.x+note.w-8, y:note.y+minH-8, width:8, height:8, rx:1,
       class:'note-resize'
@@ -740,27 +761,7 @@ function rNotes(){
       startDrag(mm, ()=>{ if(nrMoved) rNotes(); });
     });
     g.appendChild(rh);
-
-    // drag
-    let moved=false;
-    g.addEventListener('mousedown',ev=>{
-      if(ev.button||mode==='connect') return;
-      ev.stopPropagation(); ev.preventDefault();
-      const sx=ev.clientX,sy=ev.clientY,ox=note.x,oy=note.y; moved=false;
-      const mm=e=>{
-        const d=svgDelta(e.clientX-sx,e.clientY-sy);
-        if(Math.abs(d.dx)>2||Math.abs(d.dy)>2){
-          if(!moved){snapshot('Переместить заметку');moved=true;}
-          note.x=snap(Math.max(0,ox+d.dx));
-          note.y=snap(Math.max(0,oy+d.dy));
-          rNotes();
-        }
-      };
-      startDrag(mm);
-    });
-
-    g.addEventListener('dblclick',ev=>{ev.stopPropagation(); openNoteEditor(note,ev);});
-    XL.appendChild(g);
+    XL.appendChild(g); // re-append для корректного DOM-порядка
   });
 }
 
@@ -772,20 +773,52 @@ function rAll(){ rZones(); rEdges(); rTC(); rNotes(); rNodes(); if(searchMatches
 let EN_zone = null;
 
 function rZones(){
-  ZL.innerHTML='';
+  // P4: удаляем <g> удалённых зон
+  for(const [id,g] of _zcCache){
+    if(!zones.find(z=>z.id===id)){ _zcCache.delete(id); g.remove(); }
+  }
   zones.forEach(z=>{
-    const g=mk('g'); g.setAttribute('class','zone-group');
+    let g=_zcCache.get(z.id);
+    if(!g){
+      // Создаём <g> и привязываем listeners ОДИН РАЗ
+      g=mk('g'); g.setAttribute('class','zone-group');
+      let zmoved=false;
+      g.addEventListener('mousedown',ev=>{
+        if(ev.button||mode==='connect') return;
+        ev.stopPropagation();
+        const sx=ev.clientX,sy=ev.clientY,ox=z.x,oy=z.y; zmoved=false;
+        const innerNodes=nodes
+          .filter(n=>!z.collapsed&&cx(n)>=z.x&&cx(n)<=z.x+z.w&&cy(n)>=z.y&&cy(n)<=z.y+z.h)
+          .map(n=>({n,ox:n.x,oy:n.y}));
+        const mm=e=>{
+          const d=svgDelta(e.clientX-sx,e.clientY-sy);
+          if(Math.abs(d.dx)>2||Math.abs(d.dy)>2){
+            if(!zmoved){ snapshot('Переместить зону'); zmoved=true; }
+            z.x=snap(Math.max(0,ox+d.dx));
+            z.y=snap(Math.max(0,oy+d.dy));
+            innerNodes.forEach(({n,ox:nx,oy:ny})=>{
+              n.x=snap(Math.max(0,nx+d.dx));
+              n.y=snap(Math.max(0,ny+d.dy));
+            });
+            rZones(); rEdges(); rTC(); rNodes();
+          }
+        };
+        startDrag(mm);
+      });
+      g.addEventListener('dblclick',ev=>{ev.stopPropagation(); openZoneEditor(z,ev);});
+      _zcCache.set(z.id, g);
+    }
+    // Перестраиваем визуальные дочерние элементы
+    while(g.firstChild) g.removeChild(g.firstChild);
     const col=z.color||'#4a9eff';
-    const collH=26; // collapsed height
-
+    const collH=26;
     if(z.collapsed){
-      // ── Collapsed: just a label bar ──
-      const rect=sa(mk('rect'),{
+      // ── Свёрнута: только заголовочная полоса ──
+      g.appendChild(sa(mk('rect'),{
         x:z.x, y:z.y, width:z.w, height:collH, rx:4,
         fill:col, 'fill-opacity':'0.18',
         stroke:col, 'stroke-width':'1.5', class:'zone-rect'
-      });
-      g.appendChild(rect);
+      }));
       const lbl=sa(mk('text'),{
         x:z.x+10, y:z.y+collH/2,
         fill:col, 'font-family':'Arial,sans-serif',
@@ -795,15 +828,27 @@ function rZones(){
       });
       lbl.textContent=(z.label||'')+'  ▶';
       g.appendChild(lbl);
+      // кнопка раскрытия
+      const ebtn=sa(mk('text'),{
+        x:z.x+z.w-12, y:z.y+collH/2,
+        fill:col, 'font-family':'Arial,sans-serif', 'font-size':'10',
+        'dominant-baseline':'middle', 'text-anchor':'middle',
+        cursor:'pointer', opacity:'0.6'
+      });
+      ebtn.textContent='▼';
+      ebtn.addEventListener('click',ev=>{
+        ev.stopPropagation(); snapshot('Развернуть зону');
+        z.collapsed=false; rAll();
+      });
+      g.appendChild(ebtn);
     } else {
-      // ── Expanded: full rect ──
-      const rect=sa(mk('rect'),{
+      // ── Развёрнута: полный прямоугольник ──
+      g.appendChild(sa(mk('rect'),{
         x:z.x, y:z.y, width:z.w, height:z.h, rx:8,
         fill:col, 'fill-opacity':'0.07',
         stroke:col, 'stroke-width':'1.5', 'stroke-dasharray':'7,4',
         class:'zone-rect'
-      });
-      g.appendChild(rect);
+      }));
       const lbl=sa(mk('text'),{
         x:z.x+10, y:z.y+16,
         fill:col, 'font-family':'Arial,sans-serif',
@@ -812,8 +857,7 @@ function rZones(){
       });
       lbl.textContent=z.label||'';
       g.appendChild(lbl);
-
-      // collapse button (▲ in top-right)
+      // кнопка сворачивания
       const cbtn=sa(mk('text'),{
         x:z.x+z.w-12, y:z.y+16,
         fill:col, 'font-family':'Arial,sans-serif', 'font-size':'10',
@@ -822,13 +866,11 @@ function rZones(){
       });
       cbtn.textContent='▲';
       cbtn.addEventListener('click',ev=>{
-        ev.stopPropagation();
-        snapshot('Свернуть зону');
+        ev.stopPropagation(); snapshot('Свернуть зону');
         z.collapsed=true; rAll();
       });
       g.appendChild(cbtn);
-
-      // resize handle
+      // resize handle (listener пересоздаётся: захватывает ow/oh)
       const rh=sa(mk('rect'),{
         x:z.x+z.w-9, y:z.y+z.h-9, width:9, height:9, rx:2,
         fill:col, class:'zone-resize'
@@ -847,50 +889,7 @@ function rZones(){
       });
       g.appendChild(rh);
     }
-
-    // expand button if collapsed
-    if(z.collapsed){
-      const ebtn=sa(mk('text'),{
-        x:z.x+z.w-12, y:z.y+collH/2,
-        fill:col, 'font-family':'Arial,sans-serif', 'font-size':'10',
-        'dominant-baseline':'middle', 'text-anchor':'middle',
-        cursor:'pointer', opacity:'0.6'
-      });
-      ebtn.textContent='▼';
-      ebtn.addEventListener('click',ev=>{
-        ev.stopPropagation();
-        snapshot('Развернуть зону');
-        z.collapsed=false; rAll();
-      });
-      g.appendChild(ebtn);
-    }
-
-    // drag — moves zone + inner nodes
-    let zmoved=false;
-    g.addEventListener('mousedown',ev=>{
-      if(ev.button||mode==='connect') return;
-      ev.stopPropagation();
-      const sx=ev.clientX,sy=ev.clientY,ox=z.x,oy=z.y; zmoved=false;
-      const innerNodes=nodes
-        .filter(n=>!z.collapsed&&cx(n)>=z.x&&cx(n)<=z.x+z.w&&cy(n)>=z.y&&cy(n)<=z.y+z.h)
-        .map(n=>({n,ox:n.x,oy:n.y}));
-      const mm=e=>{
-        const d=svgDelta(e.clientX-sx,e.clientY-sy);
-        if(Math.abs(d.dx)>2||Math.abs(d.dy)>2){
-          if(!zmoved){ snapshot('Переместить зону'); zmoved=true; }
-          z.x=snap(Math.max(0,ox+d.dx));
-          z.y=snap(Math.max(0,oy+d.dy));
-          innerNodes.forEach(({n,ox:nx,oy:ny})=>{
-            n.x=snap(Math.max(0,nx+d.dx));
-            n.y=snap(Math.max(0,ny+d.dy));
-          });
-          rZones(); rEdges(); rTC(); rNodes();
-        }
-      };
-      startDrag(mm);
-    });
-    g.addEventListener('dblclick',ev=>{ev.stopPropagation(); openZoneEditor(z,ev);});
-    ZL.appendChild(g);
+    ZL.appendChild(g); // re-append для корректного DOM-порядка
   });
 }
 
@@ -916,7 +915,7 @@ function addZone(){
     zy=snap(vb.y+cw.clientHeight/2/vb.z-100);
     zw=300; zh=200;
   }
-  zones.push({id:'z'+Date.now(),x:zx,y:zy,w:zw,h:zh,label:'Зона',color:'#4a9eff'});
+  zones.push({id:'z'+uid(),x:zx,y:zy,w:zw,h:zh,label:'Зона',color:'#4a9eff'});
   rZones();
 }
 
@@ -966,11 +965,36 @@ function fitZoneToNodes(){
 const ALIGN_THRESH = 8; // screen pixels → пересчитывается в мировые через vb.z
 
 // Реальная высота ноды (с учётом переноса текста)
+// Мемоизация: ключ = id+w+h+title+sub1+sub2 — инвалидируется при любом изменении
+const _nodeHCache = new Map();
+// P2: кеш результатов wrapText для визуального рендеринга нод
+// ключ тот же что у _nodeHCache — инвалидируется при изменении текста/размера
+const _wrapCache = new Map();
+function getCachedWrap(n){
+  const key = n.id+'|'+n.w+'|'+(n.title||'')+'|'+(n.sub1||'')+'|'+(n.sub2||'');
+  let cached = _wrapCache.get(key);
+  if(cached) return cached;
+  cached = {
+    t: wrapText(n.title||'', n.w-16, 12),
+    s1: wrapText(n.sub1||'',  n.w-16, 10),
+    s2: wrapText(n.sub2||'',  n.w-16, 10),
+  };
+  _wrapCache.set(key, cached);
+  if(_wrapCache.size > 600) _wrapCache.clear();
+  return cached;
+}
 function nodeH(n){
+  const key = n.id+'|'+n.w+'|'+n.h+'|'+(n.title||'')+'|'+(n.sub1||'')+'|'+(n.sub2||'');
+  const cached = _nodeHCache.get(key);
+  if(cached !== undefined) return cached;
   const tl=wrapText(n.title||'',n.w-16,12);
   const s1=wrapText(n.sub1||'',n.w-16,10);
   const s2=wrapText(n.sub2||'',n.w-16,10);
-  return Math.max(n.h,(tl.length+s1.length+s2.length)*14+20);
+  const h=Math.max(n.h,(tl.length+s1.length+s2.length)*14+20);
+  _nodeHCache.set(key,h);
+  // Ограничиваем размер кеша
+  if(_nodeHCache.size>500) _nodeHCache.clear();
+  return h;
 }
 
 function clearGuides(){ GL.innerHTML=''; }
@@ -996,9 +1020,18 @@ function calcSnap(node, nx, ny){
   let snapX=nx,   snapY=ny;
   let minDX=thresh, minDY=thresh;
 
+  // P1: viewport culling — сравниваем только с нодами в радиусе SNAP_RADIUS
+  // избегаем O(N²) при drag на больших схемах
+  const SNAP_RADIUS = Math.max(200, thresh * 4);
+  const ncx = nx + node.w/2, ncy = ny + nh/2;
+
   nodes.forEach(other=>{
     if(other.id===node.id) return;
     const oh=nodeH(other);
+    const ocx=other.x+other.w/2, ocy=other.y+oh/2;
+    // быстрая проверка по bbox перед точными вычислениями
+    if(Math.abs(ocx-ncx)>SNAP_RADIUS+other.w || Math.abs(ocy-ncy)>SNAP_RADIUS+oh) return;
+
     const oxPts=[other.x, other.x+other.w/2, other.x+other.w];
     const oyPts=[other.y, other.y+oh/2,       other.y+oh     ];
 
@@ -1179,7 +1212,7 @@ function dragNode(g){
           tryInsertIntoEdge(node);
         }
       } else {
-        _dropEdge=null; _dropTC=false; _dropTCTap=null;
+        _dropEdge=null; _dropTC=null; _dropTCTap=null;
       }
     });
   });
@@ -1233,8 +1266,14 @@ function cancelConnect(){
 // finishConnect: создать связь, не открывать редактор
 function finishConnect(toNodeId){
   if(!connectFrom || connectFrom.node.id===toNodeId) return;
+  const fromId = connectFrom.node.id;
+  // Проверяем дублирование: уже есть связь A→B или B→A
+  if(edges.some(e=>(e.from===fromId&&e.to===toNodeId)||(e.from===toNodeId&&e.to===fromId))){
+    cancelConnect();
+    return;
+  }
   snapshot('Добавить связь');
-  edges.push({id:'e'+crypto.randomUUID().split('-')[0], from:connectFrom.node.id, to:toNodeId, label:'', style:'solid', wp:[]});
+  edges.push({id:'e'+crypto.randomUUID().split('-')[0], from:fromId, to:toNodeId, label:'', style:'solid', wp:[]});
   cancelConnect();
   rEdges(); rNodes();
 }
@@ -1271,14 +1310,16 @@ let rubberActive=false;
 function clearSelection(){
   selectedIds.clear();
   selected=null;
-  NL.querySelectorAll('.node-rect').forEach(r=>r.classList.remove('selected'));
+  // C4: используем _ngCache вместо querySelectorAll по всему DOM
+  for(const [,g] of _ngCache){ const r=g.querySelector('.node-rect'); if(r) r.classList.remove('selected'); }
 }
 
 function applySelection(){
-  NL.querySelectorAll('.node-rect').forEach(r=>r.classList.remove('selected'));
+  // C4: _ngCache вместо O(N) querySelector на каждую выбранную ноду
+  for(const [,g] of _ngCache){ const r=g.querySelector('.node-rect'); if(r) r.classList.remove('selected'); }
   selectedIds.forEach(sid=>{
-    const g=NL.querySelector(`[data-id="${sid}"]`);
-    if(g) g.querySelector('.node-rect').classList.add('selected');
+    const g=_ngCache.get(sid);
+    if(g){ const r=g.querySelector('.node-rect'); if(r) r.classList.add('selected'); }
   });
 }
 
@@ -1291,6 +1332,7 @@ function selectNode(id, additive){
     selected=id;
   }
   applySelection();
+  updateHintBar(); // C5: счётчик «Выбрано: N нод» обновляется сразу
 }
 
 function selectAll(){
@@ -1355,6 +1397,8 @@ function removeNode(id){
   nodes=nodes.filter(n=>n.id!==id);
   edges=edges.filter(e=>e.from!==id&&e.to!==id);
   selectedIds.delete(id);
+  // U1: поиск мог содержать удалённую ноду — обновляем результаты
+  if(searchMatches.length) doSearch();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1480,6 +1524,7 @@ function onDevTypeChange(prefix){
   const dt = document.getElementById(prefix+'-devtype').value;
   const novaRow      = document.getElementById(prefix+'-nova-row');
   const audioRow     = document.getElementById(prefix+'-audio-row');
+  const lightRow     = document.getElementById(prefix+'-light-row');
   const broadcastRow = document.getElementById(prefix+'-broadcast-row');
   const videoRow     = document.getElementById(prefix+'-video-row');
   const tcRow        = document.getElementById(prefix+'-tc-row');
@@ -1487,6 +1532,7 @@ function onDevTypeChange(prefix){
   const vcRow        = document.getElementById(prefix+'-vc-row');
   novaRow.style.display      = dt==='led-processor'    ? 'block' : 'none';
   audioRow.style.display     = dt==='audio-console'    ? 'block' : 'none';
+  if(lightRow) lightRow.style.display = dt==='light-console' ? 'block' : 'none';
   broadcastRow.style.display = dt==='broadcast'        ? 'block' : 'none';
   videoRow.style.display     = dt==='video-server'     ? 'block' : 'none';
   tcRow.style.display        = dt==='timecode'         ? 'block' : 'none';
@@ -1494,6 +1540,7 @@ function onDevTypeChange(prefix){
   if(vcRow) vcRow.style.display = dt==='video-capture' ? 'block' : 'none';
   if(dt!=='led-processor')    document.getElementById(prefix+'-nova').value='';
   if(dt!=='audio-console')    document.getElementById(prefix+'-audio').value='';
+  if(dt!=='light-console'){ const lEl=document.getElementById(prefix+'-light'); if(lEl) lEl.value=''; }
   if(dt!=='broadcast')        document.getElementById(prefix+'-broadcast').value='';
   if(dt!=='video-server')     document.getElementById(prefix+'-video').value='';
   if(dt!=='timecode')         document.getElementById(prefix+'-tc-src').value='';
@@ -1581,6 +1628,14 @@ function onNovaChange(prefix){
   if(outEl && NOVA_OUTPUTS[model]) outEl.value = NOVA_OUTPUTS[model];
 }
 
+function onLightConsoleChange(prefix){
+  const val = document.getElementById(prefix+'-light').value;
+  if(val){
+    document.getElementById(prefix+'-s1').value = 'Световой пульт';
+    _autoTitle(prefix, val);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // ADD NODE
 // ═══════════════════════════════════════════════════════════
@@ -1597,6 +1652,8 @@ function addNode(){
   document.getElementById('ne-nova-row').style.display='none';
   document.getElementById('ne-nova').value='';
   document.getElementById('ne-outputs').value='';
+  document.getElementById('ne-light-row').style.display='none';
+  document.getElementById('ne-light').value='';
   document.getElementById('ne-audio-row').style.display='none';
   document.getElementById('ne-audio').value='';
   document.getElementById('ne-broadcast-row').style.display='none';
@@ -1686,6 +1743,8 @@ function openNE(n,ev){
   document.getElementById('ne-nova-row').style.display=dt==='led-processor'?'block':'none';
   document.getElementById('ne-nova').value=n.novaModel||'';
   document.getElementById('ne-outputs').value=n.outputs||'';
+  document.getElementById('ne-light-row').style.display=dt==='light-console'?'block':'none';
+  document.getElementById('ne-light').value=n.lightConsoleModel||'';
   document.getElementById('ne-audio-row').style.display=dt==='audio-console'?'block':'none';
   document.getElementById('ne-audio').value=n.audioConsole||'';
   document.getElementById('ne-broadcast-row').style.display=dt==='broadcast'?'block':'none';
@@ -1751,6 +1810,7 @@ function saveNode(){
       deviceType:dt,
       novaModel:dt==='led-processor'&&nova?nova:undefined,
       outputs:dt==='led-processor'?parseInt(document.getElementById('ne-outputs').value)||undefined:undefined,
+      lightConsoleModel:dt==='light-console'?document.getElementById('ne-light').value||undefined:undefined,
       audioConsole:dt==='audio-console'?document.getElementById('ne-audio').value||undefined:undefined,
       broadcastType:dt==='broadcast'?document.getElementById('ne-broadcast').value||undefined:undefined,
       videoSoftware:dt==='video-server'?document.getElementById('ne-video').value||undefined:undefined,
@@ -1771,6 +1831,7 @@ function saveNode(){
     EN.deviceType=dt;
     EN.novaModel=dt==='led-processor'&&nova?nova:undefined;
     EN.outputs=dt==='led-processor'?parseInt(document.getElementById('ne-outputs').value)||undefined:undefined;
+    EN.lightConsoleModel=dt==='light-console'?document.getElementById('ne-light').value||undefined:undefined;
     EN.audioConsole=dt==='audio-console'?document.getElementById('ne-audio').value||undefined:undefined;
     EN.broadcastType=dt==='broadcast'?document.getElementById('ne-broadcast').value||undefined:undefined;
     EN.videoSoftware=dt==='video-server'?document.getElementById('ne-video').value||undefined:undefined;
@@ -1848,6 +1909,14 @@ function cp(id){
   const el=document.getElementById(id);
   el.style.display='none';
   el._dragged=false;
+}
+// Закрывает все попапы и обнуляет переменные редакторов.
+// Вызывается при resetToWelcome / newProject / applyState (открытие файла / undo-redo).
+function _closeEditors(){
+  ['ned','eed','qed','tbe','std','xed'].forEach(id=>{
+    const el=document.getElementById(id); if(el){ el.style.display='none'; el._dragged=false; }
+  });
+  EN=null; EN_zone=null; EN_note=null; EN_tcBus=null; _qeNode=null; EE=null;
 }
 document.getElementById('cw').addEventListener('click',ev=>{
   if(!ev.target.closest('.popup')){ cp('ned'); cp('eed'); cp('xed'); cp('std'); }
@@ -1946,7 +2015,7 @@ function exportPNG(){
   };
   img.src=blobUrl;
 }
-function dl(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; a.click(); }
+function dl(url,name){ const a=document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url), 10000); }
 
 function printDiagram(){
   const {str}=getExpSVG();
@@ -2104,6 +2173,7 @@ function zoomAt(mx,my,newZ){
   const wx=vb.x+mx/vb.z,wy=vb.y+my/vb.z;
   vb.z=newZ;vb.x=wx-mx/vb.z;vb.y=wy-my/vb.z;applyVB();
 }
+
 function rZones(){
   ZL.innerHTML='';
   zones.forEach(z=>{
@@ -2115,21 +2185,19 @@ function rZones(){
         fill:col,'fill-opacity':'0.18',stroke:col,'stroke-width':'1.5',class:'zone-rect'}));
       const lbl=sa(mk('text'),{x:z.x+10,y:z.y+collH/2,fill:col,
         'font-family':'Arial,sans-serif','font-size':'11','font-weight':'bold',
-        'dominant-baseline':'middle',class:'zone-lbl-text'});
-      lbl.textContent=(z.label||'')+'  ▶';
-      g.appendChild(lbl);
+        'dominant-baseline':'middle','pointer-events':'none',class:'zone-lbl-text'});
+      lbl.textContent=(z.label||'')+'  ▶'; g.appendChild(lbl);
     } else {
       g.appendChild(sa(mk('rect'),{x:z.x,y:z.y,width:z.w,height:z.h,rx:8,
         fill:col,'fill-opacity':'0.07',stroke:col,'stroke-width':'1.5','stroke-dasharray':'7,4',class:'zone-rect'}));
       const lbl=sa(mk('text'),{x:z.x+10,y:z.y+16,fill:col,
-        'font-family':'Arial,sans-serif','font-size':'11','font-weight':'bold',class:'zone-lbl-text'});
-      lbl.textContent=z.label||'';
-      g.appendChild(lbl);
+        'font-family':'Arial,sans-serif','font-size':'11','font-weight':'bold',
+        'pointer-events':'none',class:'zone-lbl-text'});
+      lbl.textContent=z.label||''; g.appendChild(lbl);
     }
     ZL.appendChild(g);
   });
 }
-
 function rEdges(){
   EL.innerHTML='';
   edges.forEach(e=>{
@@ -2137,12 +2205,10 @@ function rEdges(){
     if(!e.wp)e.wp=[];
     const fz=collapsedZoneOf(fn),tz=collapsedZoneOf(tn);
     if(fz&&tz&&fz===tz)return;
-    const effFn=fz?zoneBar(fz):fn, effTn=tz?zoneBar(tz):tn;
+    const effFn=fz?zoneBar(fz):fn,effTn=tz?zoneBar(tz):tn;
     const useWP=!fz&&!tz?e.wp:[];
-    const tnCx=effTn.x+effTn.w/2,tnCy=effTn.y+effTn.h/2;
-    const fnCx=effFn.x+effFn.w/2,fnCy=effFn.y+effFn.h/2;
-    const p1=useWP.length?bpt(effFn,useWP[0].x,useWP[0].y):bpt(effFn,tnCx,tnCy);
-    const p2=useWP.length?bpt(effTn,useWP[useWP.length-1].x,useWP[useWP.length-1].y):bpt(effTn,fnCx,fnCy);
+    const p1=useWP.length?bpt(effFn,useWP[0].x,useWP[0].y):bpt(effFn,effTn.x+effTn.w/2,effTn.y+effTn.h/2);
+    const p2=useWP.length?bpt(effTn,useWP[useWP.length-1].x,useWP[useWP.length-1].y):bpt(effTn,effFn.x+effFn.w/2,effFn.y+effFn.h/2);
     const chain=[p1,...useWP.map(p=>({...p})),p2];
     const pts=chain.map(p=>p.x+','+p.y).join(' ');
     EL.appendChild(sa(mk('polyline'),{points:pts,class:'edge'+(e.style==='dashed'?' dashed':''),'marker-end':'url(#arr)',fill:'none'}));
@@ -2154,7 +2220,6 @@ function rEdges(){
     }
   });
 }
-
 function rTC(){
   TL.innerHTML='';
   tcBuses.forEach(bus=>{
@@ -2163,73 +2228,56 @@ function rTC(){
     TL.appendChild(sa(mk('line'),{x1:bus.x1,y1:bus.y,x2:bus.x2,y2:bus.y,class:'tc-rail',stroke:col,'stroke-width':'2','stroke-dasharray':'10,5'}));
     const lbl=sa(mk('text'),{x:bus.x1+10,y:bus.y-10,class:'tc-rail-lbl',fill:col});
     lbl.textContent='— — — '+(bus.label||'TIMECODE BUS')+' — — —';TL.appendChild(lbl);
-    nodes.filter(n=>n.tcOut&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))&&!collapsedZoneOf(n)).forEach(n=>{
+    nodes.filter(n=>n.tcOut&&!collapsedZoneOf(n)).forEach(n=>{
       const nx=cx(n);if(bus.y>=n.y-3)return;
       TL.appendChild(sa(mk('line'),{x1:nx,y1:n.y,x2:nx,y2:bus.y,stroke:'#333','stroke-width':'1.5','stroke-dasharray':'4,3'}));
-      TL.appendChild(sa(mk('polygon'),{points:\`\${nx-4},\${bus.y+7} \${nx+4},\${bus.y+7} \${nx},\${bus.y}\`,fill:col}));
       const sl=sa(mk('text'),{x:nx+5,y:(n.y+bus.y)/2,class:'tc-lbl',fill:col});sl.textContent='TC out';TL.appendChild(sl);
     });
-    nodes.filter(n=>n.tc&&(n.tcBusId===bus.id||(bus===tcBuses[0]&&!n.tcBusId))&&!collapsedZoneOf(n)).forEach(n=>{
+    nodes.filter(n=>n.tc&&!collapsedZoneOf(n)).forEach(n=>{
       const nx=cx(n);if(bus.y>=n.y-3)return;
       TL.appendChild(sa(mk('line'),{x1:nx,y1:bus.y,x2:nx,y2:n.y,class:'tc-tap','marker-end':'url(#arr-sm)'}));
       const tl=sa(mk('text'),{x:nx+5,y:(bus.y+n.y)/2,class:'tc-lbl',fill:col});tl.textContent='TC';TL.appendChild(tl);
     });
   });
 }
-
 function rNodes(){
   NL.innerHTML='';
   nodes.forEach(n=>{
+    if(collapsedZoneOf(n)) return;
     const g=mk('g');g.setAttribute('class','node-group');
     const titleLines=wrapText(n.title||'',n.w-16,12);
     const sub1Lines=wrapText(n.sub1||'',n.w-16,10);
     const sub2Lines=wrapText(n.sub2||'',n.w-16,10);
-    const LH=14,PAD=10,totalLines=titleLines.length+sub1Lines.length+sub2Lines.length;
-    const autoH=Math.max(n.h,totalLines*LH+PAD*2);
+    const LH=14,PAD=10;
+    const autoH=Math.max(n.h,(titleLines.length+sub1Lines.length+sub2Lines.length)*LH+PAD*2);
     g.appendChild(sa(mk('rect'),{x:n.x,y:n.y,width:n.w,height:autoH,rx:3,
       class:'node-rect'+(n.style==='output'?' output':n.style==='highlight'?' highlight':n.style==='audio'?' audio':'')}));
     const dtCol=getDevtypeColor(n.deviceType);
     if(dtCol) g.appendChild(sa(mk('rect'),{x:n.x,y:n.y,width:n.w,height:3,rx:2,fill:dtCol,'pointer-events':'none'}));
-    if(n.outputs){
-      const bx=n.x+n.w-10,by=n.y+10;
-      g.appendChild(sa(mk('circle'),{cx:bx,cy:by,r:9,fill:dtCol||'#666','pointer-events':'none'}));
-      const bt=sa(mk('text'),{x:bx,y:by,'font-family':'Arial,sans-serif','font-size':'8','font-weight':'bold',fill:'#fff','text-anchor':'middle','dominant-baseline':'middle','pointer-events':'none'});
-      bt.textContent=n.outputs;g.appendChild(bt);
-    }
     let curY=n.y+PAD+LH/2;
     const rl=(lines,cls)=>lines.forEach(l=>{const t=sa(mk('text'),{x:n.x+n.w/2,y:curY,class:cls});t.textContent=l;g.appendChild(t);curY+=LH;});
     rl(titleLines,'node-title');rl(sub1Lines,'node-sub');rl(sub2Lines,'node-sub');
-    // drag
     let sx,sy,snx,sny,moved=false;
     g.addEventListener('mousedown',ev=>{
       if(ev.button)return;ev.stopPropagation();ev.preventDefault();
       sx=ev.clientX;sy=ev.clientY;snx=n.x;sny=n.y;moved=false;
-      const mm=e=>{
-        const dx=(e.clientX-sx)/vb.z,dy=(e.clientY-sy)/vb.z;
-        if(Math.abs(dx)>2||Math.abs(dy)>2){moved=true;n.x=Math.max(0,snx+dx);n.y=Math.max(0,sny+dy);rEdges();rTC();rNodes();}
-      };
-      startDrag(mm);
+      const mm=e=>{const dx=(e.clientX-sx)/vb.z,dy=(e.clientY-sy)/vb.z;
+        if(Math.abs(dx)>2||Math.abs(dy)>2){moved=true;n.x=Math.max(0,snx+dx);n.y=Math.max(0,sny+dy);rEdges();rTC();rNodes();}};
+      const up=()=>{document.removeEventListener('mousemove',mm);document.removeEventListener('mouseup',up);};
+      document.addEventListener('mousemove',mm);document.addEventListener('mouseup',up);
     });
-    if(collapsedZoneOf(n)) return;
     NL.appendChild(g);
   });
-}
-
-function wrapTextC(text,maxW,fs){
-  if(!text)return[];
-  const cpl=Math.floor(maxW/(fs*0.6));
-  if(text.length<=cpl)return[text];
-  const words=text.split(' '),lines=[];let cur='';
-  words.forEach(w=>{const t=cur?cur+' '+w:w;if(t.length<=cpl)cur=t;else{if(cur)lines.push(cur);cur=w;}});
-  if(cur)lines.push(cur);return lines;
 }
 function rNotes(){
   XL.innerHTML='';
   notes.forEach(note=>{
-    const g=mk('g');g.style.cursor='grab';
+    const g=mk('g');
     const PAD=8,LH=15;
-    const lines=wrapTextC(note.text||'',note.w-PAD*2,11);
-    if(!lines.length)lines.push('');
+    const words=(note.text||'').split(' '),lines=[];let cur='';
+    const cpl=Math.floor((note.w-PAD*2)/(11*0.6));
+    words.forEach(w=>{const t=cur?cur+' '+w:w;if(t.length<=cpl)cur=t;else{if(cur)lines.push(cur);cur=w;}});
+    if(cur)lines.push(cur);if(!lines.length)lines.push('');
     const minH=Math.max(note.h,lines.length*LH+PAD*2+4);
     g.appendChild(sa(mk('rect'),{x:note.x,y:note.y,width:note.w,height:minH,rx:4,
       fill:note.color||'#fffbe6',stroke:'#bbb','stroke-width':'1'}));
@@ -2238,14 +2286,6 @@ function rNotes(){
       const t=sa(mk('text'),{x:note.x+PAD,y:curY,'font-family':'Arial,sans-serif',
         'font-size':'11',fill:'#444','dominant-baseline':'middle'});
       t.textContent=l;g.appendChild(t);curY+=LH;
-    });
-    let sx,sy,ox,oy;
-    g.addEventListener('mousedown',ev=>{
-      if(ev.button)return;ev.stopPropagation();ev.preventDefault();
-      sx=ev.clientX;sy=ev.clientY;ox=note.x;oy=note.y;
-      const mm=e=>{const dx=(e.clientX-sx)/vb.z,dy=(e.clientY-sy)/vb.z;
-        if(Math.abs(dx)>2||Math.abs(dy)>2){note.x=Math.max(0,ox+dx);note.y=Math.max(0,oy+dy);rNotes();}};
-      startDrag(mm);
     });
     XL.appendChild(g);
   });
@@ -2296,7 +2336,9 @@ function resetLayout(){
 
 function resetToWelcome(){
   if(!confirm('Сбросить проект? Несохранённые изменения будут потеряны.')) return;
+  _closeEditors();
   nodes=[]; edges=[]; tcBuses=[{...DTC_BUS}]; notes=[]; zones=[]; customDeviceTypes=[];
+  _ngCache.clear(); _ntCache.clear(); _zcCache.clear(); _egCache.clear();
   rebuildDevTypeSelects();
   currentFilePath=null;
   undoStack.length=0; redoStack.length=0;
@@ -2338,7 +2380,7 @@ function validateAndSanitize(s){
     n.sub1=st(n.sub1||''); n.sub2=st(n.sub2||'');
     if(n.label) n.label=st(n.label);
     n.style=n.style||'normal';
-    if(!Array.isArray(n.tc)) n.tc=!!n.tc; // boolean
+    n.tc=!!n.tc; // boolean
     if(!n.wp) n.wp=undefined;
     return true;
   });
@@ -2367,6 +2409,8 @@ function validateAndSanitize(s){
     if(!Array.isArray(e.wp)) e.wp=[];
     e.wp=e.wp.filter(p=>p&&typeof p.x==='number'&&typeof p.y==='number');
     e.style=e.style||'solid';
+    // C1: санитизация label рёбра (как ноды)
+    if(e.label) e.label=typeof e.label==='string'?e.label.replace(/<[^>]*>/g,''):'';
     return true;
   });
 
@@ -2415,6 +2459,7 @@ function validateAndSanitize(s){
 }
 
 function applyState(s){
+  _closeEditors(); // стейт изменился — все открытые редакторы невалидны
   if(s.nodes) nodes = s.nodes;
   if(s.edges) edges = s.edges;
   _restoreTCBuses(s);
@@ -2539,17 +2584,23 @@ function getVPSize(){
   return { w: cw.clientWidth, h: cw.clientHeight };
 }
 
+// P5: rAF-throttling для applyVB — scroll/resize не перегружают paint
+let _applyVBPending=false;
 function applyVB(){
-  const {w,h}=getVPSize();
-  // viewBox: origin=(vb.x,vb.y), size=screen/zoom
-  const vbW=w/vb.z, vbH=h/vb.z;
-  svg.setAttribute('viewBox',`${vb.x} ${vb.y} ${vbW} ${vbH}`);
-  svg.setAttribute('width', w);
-  svg.setAttribute('height', h);
-  const bz=document.getElementById('btn-zoom');
-  if(bz) bz.textContent=Math.round(vb.z*100)+'%';
-  rMinimap();
-  updateHintBar();
+  if(_applyVBPending) return;
+  _applyVBPending=true;
+  requestAnimationFrame(()=>{
+    _applyVBPending=false;
+    const {w,h}=getVPSize();
+    const vbW=w/vb.z, vbH=h/vb.z;
+    svg.setAttribute('viewBox',`${vb.x} ${vb.y} ${vbW} ${vbH}`);
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    const bz=document.getElementById('btn-zoom');
+    if(bz) bz.textContent=Math.round(vb.z*100)+'%';
+    rMinimap();
+    updateHintBar();
+  });
 }
 
 function zoomAt(cx,cy,newZ){
@@ -3068,7 +3119,7 @@ function _activeProfiles(){
 }
 
 function _detectNodeProfile(n){
-  const text = ((n.devType||'') + ' ' + (n.title||'') + ' ' + (n.sub1||'')).toLowerCase();
+  const text = ((n.deviceType||'') + ' ' + (n.title||'') + ' ' + (n.sub1||'') + ' ' + (n.lightConsoleModel||'')).toLowerCase();
   const profiles = _activeProfiles();
   // приоритет: artnet > dante > ndi > osc > intercom > general
   for(const p of profiles){
@@ -3502,24 +3553,11 @@ function _renderTopoSVG(sectionEdges, sectionIds){
     <div class="net-topo-svg-title">Топология</div>${svg}</div>`;
 }
 
-function renderNetPanel(){
-  const panel = document.getElementById('net-panel');
-  const search = _netSearch.toLowerCase();
-  const zFilter = _netZoneFilter;
-
-  const assigned = new Set();
-  const allZoneGroups = zones.map(z => {
-    const zn = nodes.filter(n => nodeInZone(n, z));
-    zn.forEach(n => assigned.add(n.id));
-    return {zone: z, nodes: zn};
-  }).filter(g => g.nodes.length);
-  const unassigned = nodes.filter(n => !assigned.has(n.id));
-
+// ── Строит только карточки устройств (горячий путь — поиск, фильтр) ──
+function _buildNetCards(search, zFilter, allZoneGroups, unassigned){
   function renderCard(label, color, nodeList, zoneId){
     if(!nodeList.length) return '';
-    // фильтр по зоне
     if(zFilter && zoneId !== zFilter) return '';
-    // фильтр по поиску
     const filtered = search
       ? nodeList.filter(n=>(n.title||'').toLowerCase().includes(search)||(n.sub1||'').toLowerCase().includes(search)||(n.ip||'').includes(search))
       : nodeList;
@@ -3531,12 +3569,12 @@ function renderNetPanel(){
       .map(e => { const fn=nb(e.from),tn=nb(e.to); return (fn&&tn)?{e,fn,tn,internal:sectionIds.has(e.from)&&sectionIds.has(e.to)}:null; })
       .filter(Boolean);
 
+    const reSearch = search ? new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'gi') : null;
+    const hi = t => reSearch ? t.replace(reSearch, m=>`<mark style="background:#fff176">${m}</mark>`) : t;
+
     const rows = filtered.map(n => {
       const dtCol = getDevtypeColor(n.deviceType) || '#999';
       const id = n.id;
-      // подсветка поиска
-      const hi = t => search && t.toLowerCase().includes(search)
-        ? t.replace(new RegExp(search,'gi'), m=>`<mark style="background:#fff176">${m}</mark>`) : t;
       return `<tr>
         <td>
           <div class="net-dev-cell">
@@ -3569,11 +3607,7 @@ function renderNetPanel(){
       <div class="net-zone-body">
         <table class="net-table">
           <thead><tr>
-            <th>Устройство</th>
-            <th>IP</th>
-            <th>Маска</th>
-            <th>Шлюз</th>
-            <th>Примечание</th>
+            <th>Устройство</th><th>IP</th><th>Маска</th><th>Шлюз</th><th>Примечание</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -3582,22 +3616,53 @@ function renderNetPanel(){
     </div>`;
   }
 
+  let cards = allZoneGroups.map(({zone, nodes: zn}) =>
+    renderCard(zone.label||'Зона', zone.color||'#4a9eff', zn, zone.id)
+  ).join('');
+  if(!zFilter && unassigned.length) cards += renderCard('Вне зон', '#888', unassigned, '__unassigned__');
+  if(!cards.trim()) return `<div style="text-align:center;padding:60px 0;color:#aaa;font-size:13px;">
+    ${search||zFilter ? 'Ничего не найдено. Измените поиск или фильтр.' : 'Нет устройств. Добавьте ноды и зоны на схему.'}
+  </div>`;
+  return cards;
+}
+
+// ── Обновляет только content-зону (поиск/фильтр не перестраивают chrome) ──
+function _refreshNetContent(){
+  const contentEl = document.getElementById('net-content');
+  if(!contentEl) { renderNetPanel(); return; }
+  const search = _netSearch.toLowerCase();
+  const assigned = new Set();
+  const allZoneGroups = zones.map(z => {
+    const zn = nodes.filter(n => nodeInZone(n, z));
+    zn.forEach(n => assigned.add(n.id));
+    return {zone: z, nodes: zn};
+  }).filter(g => g.nodes.length);
+  const unassigned = nodes.filter(n => !assigned.has(n.id));
+  contentEl.innerHTML = _buildNetCards(search, _netZoneFilter, allZoneGroups, unassigned);
+}
+
+function renderNetPanel(){
+  const panel = document.getElementById('net-panel');
+  const search = _netSearch.toLowerCase();
+
+  const assigned = new Set();
+  const allZoneGroups = zones.map(z => {
+    const zn = nodes.filter(n => nodeInZone(n, z));
+    zn.forEach(n => assigned.add(n.id));
+    return {zone: z, nodes: zn};
+  }).filter(g => g.nodes.length);
+  const unassigned = nodes.filter(n => !assigned.has(n.id));
+
   // опции для select зон
   const zoneOptions = allZoneGroups.map(({zone})=>
     `<option value="${zone.id}"${_netZoneFilter===zone.id?' selected':''}>${zone.label||'Зона'}</option>`
   ).join('');
 
-  // считаем ошибки валидации
+  // ошибки валидации
   const errCount = nodes.filter(n=>n.ip&&!_isValidIP(n.ip)||n.mask&&!_isValidMask(n.mask)||n.gw&&!_isValidIP(n.gw)).length;
   const errBadge = errCount ? `<span style="background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:10px;margin-left:8px;">⚠ ${errCount}</span>` : '';
 
-  let cards = allZoneGroups.map(({zone, nodes: zn}) =>
-    renderCard(zone.label||'Зона', zone.color||'#4a9eff', zn, zone.id)
-  ).join('');
-  if(!_netZoneFilter && unassigned.length) cards += renderCard('Вне зон', '#888', unassigned, '__unassigned__');
-  if(!cards.trim()) cards = `<div style="text-align:center;padding:60px 0;color:#aaa;font-size:13px;">
-    ${search||_netZoneFilter ? 'Ничего не найдено. Измените поиск или фильтр.' : 'Нет устройств. Добавьте ноды и зоны на схему.'}
-  </div>`;
+  const cards = _buildNetCards(search, _netZoneFilter, allZoneGroups, unassigned);
 
   panel.innerHTML = `
     <div class="net-topbar">
@@ -3612,26 +3677,30 @@ function renderNetPanel(){
           <div class="ctx-item" onclick="closeNetExportMenu();printNetTable()">🖨 Печать / PDF</div>
           <div class="ctx-sep"></div>
           <div class="ctx-item" onclick="exportNetPatch()">🔧 Патч сети .hta (Windows)</div>
+          <div class="ctx-item" onclick="exportNetPing()">📡 Пинг карта .hta (Windows)</div>
+          <div class="ctx-sep"></div>
+          <div class="ctx-item" onclick="exportNetPatchMac()">🔧 Патч сети .command (macOS)</div>
+          <div class="ctx-item" onclick="exportNetPingMac()">📡 Пинг карта .command (macOS)</div>
         </div>
       </div>
     </div>
     <div class="net-control-bar">
       <input class="net-search" type="text" placeholder="Найти устройство, IP…"
-        value="${_netSearch}"
-        oninput="_netSearch=this.value;renderNetPanel()">
-      <select class="net-zone-select" onchange="_netZoneFilter=this.value;renderNetPanel()">
+        value="${_netSearch}" id="net-search-input"
+        oninput="_netSearch=this.value;_refreshNetContent()">
+      <select class="net-zone-select" onchange="_netZoneFilter=this.value;_refreshNetContent()">
         <option value="">Все зоны</option>
         ${zoneOptions}
         ${unassigned.length?`<option value="__unassigned__"${_netZoneFilter==='__unassigned__'?' selected':''}>Вне зон</option>`:''}
       </select>
       <label class="net-topo-toggle">
-        <input type="checkbox" ${_netShowTopo?'checked':''} onchange="_netShowTopo=this.checked;renderNetPanel()">
+        <input type="checkbox" ${_netShowTopo?'checked':''} onchange="_netShowTopo=this.checked;_refreshNetContent()">
         Топология
       </label>
       <span class="net-stats">${nodes.length} устр. · ${zones.length} зон</span>
       <button class="tbtn" onclick="showAutoNetDialog()" title="Автоматически назначить IP по типам устройств" style="margin-left:auto;background:#f59e0b22;border-color:#f59e0b66;color:#f59e0b;">🔧 Авто-сеть</button>
     </div>
-    <div class="net-content">${cards}</div>`;
+    <div class="net-content" id="net-content">${cards}</div>`;
 }
 
 function toggleNetExportMenu(){
@@ -3755,7 +3824,7 @@ function exportNetPatch(){
       return {
         name: n.title || n.id,
         sub:  n.sub1  || '',
-        zone: z ? z.title||z.id : '',
+        zone: z ? (z.title||z.label||'Зона') : '',
         ip:   n.ip   || '',
         mask: n.mask || '',
         gw:   n.gw   || ''
@@ -3769,291 +3838,596 @@ function exportNetPatch(){
 
   const devsJson = JSON.stringify(devs);
 
-  const hta = `\uFEFF<html>
+  // Уникальные зоны для фильтра
+  const zoneNames = [];
+  const zoneSet = {};
+  devs.forEach(function(d){ if(d.zone && !zoneSet[d.zone]){ zoneSet[d.zone]=1; zoneNames.push(d.zone); } });
+  const zoneFilterOpts = '<option value="">Все зоны</option>' +
+    zoneNames.map(function(z){ return '<option value="'+z+'">'+z+'</option>'; }).join('');
+
+  const hta = `\uFEFF<!DOCTYPE html>
+<html>
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<meta http-equiv="x-ua-compatible" content="ie=11">
+<meta http-equiv="x-ua-compatible" content="IE=edge">
 <title>Network Patch &#8212; ${projectName}</title>
 <HTA:APPLICATION
   APPLICATIONNAME="Network Patch"
-  BORDER="thin"
-  BORDERSTYLE="normal"
-  CAPTION="yes"
-  MAXIMIZEBUTTON="no"
-  MINIMIZEBUTTON="yes"
-  SCROLL="auto"
-  SINGLEINSTANCE="yes"
-  WINDOWSTATE="normal"
+  BORDER="thin" BORDERSTYLE="normal" CAPTION="yes"
+  MAXIMIZEBUTTON="yes" MINIMIZEBUTTON="yes"
+  SCROLL="no" SINGLEINSTANCE="yes" WINDOWSTATE="maximize"
 />
 <style>
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:#12121f;color:#dde;font-family:"Segoe UI",Arial,sans-serif;font-size:14px;padding:18px 20px;}
-h1{color:#ff9800;font-size:20px;font-weight:700;margin-bottom:3px;}
-.sub{color:#666;font-size:12px;margin-bottom:18px;}
-.warn{background:#2a0c0c;border:1px solid #c0392b;border-radius:6px;padding:10px 14px;
-  color:#e74c3c;font-size:12px;margin-bottom:14px;display:none;}
-.section{color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.12em;margin-bottom:8px;}
-.toolbar{display:-ms-flexbox;display:flex;-ms-flex-align:center;align-items:center;
-  gap:10px;background:#1a1a2e;padding:11px 14px;border-radius:7px;margin-bottom:16px;border:1px solid #2a2a44;}
-.toolbar label{color:#888;font-size:12px;white-space:nowrap;}
-select{background:#0f1f3a;color:#dde;border:1px solid #3a3a5a;border-radius:4px;
-  padding:6px 10px;font-size:13px;min-width:220px;outline:none;}
-.rbtn{background:#252545;color:#aaa;border:1px solid #3a3a5a;border-radius:4px;
-  padding:6px 12px;cursor:pointer;font-size:12px;white-space:nowrap;}
-.rbtn:hover{background:#303060;color:#fff;}
-.devices{display:-ms-flexbox;display:flex;-ms-flex-direction:column;flex-direction:column;gap:8px;margin-bottom:18px;}
-.card{background:#1a1a2e;border:1px solid #2a2a44;border-radius:8px;padding:12px 16px;
-  display:-ms-flexbox;display:flex;-ms-flex-align:center;align-items:center;gap:12px;
-  transition:border-color .2s;}
-.card.ok{border-color:#2e7d32;}
-.card.err{border-color:#c0392b;}
-.dot{width:11px;height:11px;border-radius:50%;background:#333;flex-shrink:0;
-  transition:background .3s;}
-.dot.ok{background:#4caf50;}
-.dot.err{background:#e74c3c;}
-.dot.pend{background:#ff9800;}
-.info{-ms-flex:1;flex:1;min-width:0;}
-.dname{font-size:14px;font-weight:600;color:#eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.dzone{font-size:11px;color:#666;margin-bottom:5px;}
-.dnet{font-size:13px;color:#8ab4d8;font-family:Consolas,monospace;}
-.dnet .gw{color:#777;margin-left:10px;}
-.actions{display:-ms-flexbox;display:flex;gap:6px;flex-shrink:0;}
-.btn-apply{background:#ff9800;color:#000;border:none;border-radius:5px;padding:8px 16px;
-  font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}
-.btn-apply:hover{background:#ffa826;}
-.btn-apply:disabled{background:#555;color:#888;cursor:not-allowed;}
-.btn-ping{background:#1e2040;color:#99b;border:1px solid #3a3a5a;border-radius:5px;
-  padding:8px 10px;font-size:12px;cursor:pointer;white-space:nowrap;}
-.btn-ping:hover{background:#252550;color:#cce;}
-.log-wrap{background:#0a0a14;border:1px solid #222;border-radius:6px;padding:12px;
-  font-family:Consolas,monospace;font-size:12px;min-height:100px;max-height:220px;overflow-y:auto;}
-.li{margin-top:4px;}
-.li.ok{color:#4caf50;}.li.err{color:#e74c3c;}.li.inf{color:#777;}.li.warn{color:#ff9800;}
-.bottom-bar{margin-top:14px;display:-ms-flexbox;display:flex;gap:8px;-ms-flex-align:center;align-items:center;}
-.btn-all{background:#1e2040;color:#9ab;border:1px solid #3a3a5a;border-radius:5px;
-  padding:8px 16px;font-size:12px;cursor:pointer;}
-.btn-all:hover{background:#252560;color:#cce;}
-.btn-clr{background:none;color:#555;border:none;font-size:12px;cursor:pointer;margin-left:auto;}
-.btn-clr:hover{color:#aaa;}
-.no-dev{color:#555;text-align:center;padding:24px;font-size:13px;}
+html,body{height:100%;margin:0;padding:0;overflow:hidden;}
+body{background:#13131f;color:#dde;font-family:"Segoe UI",Arial,sans-serif;font-size:15px;}
+*{box-sizing:border-box;}
+/* Header */
+#hdr{background:#1a1a2e;border-bottom:2px solid #f59e0b;padding:7px 16px;white-space:nowrap;}
+.hh1{font-size:17px;color:#f59e0b;font-weight:700;}
+.hmeta{font-size:12px;color:#556;margin-left:10px;}
+/* Admin warn */
+#admw{background:#2a0c0c;border-bottom:1px solid #c0392b;padding:7px 16px;color:#e74c3c;font-size:12px;display:none;}
+/* Top table: controls left, console right */
+#toptr{width:100%;border-collapse:collapse;border-bottom:2px solid #1a1a2e;}
+.cc{width:260px;vertical-align:top;background:#0d0d1c;border-right:1px solid #1a1a2e;padding:10px 14px;}
+.frow{margin-bottom:9px;}
+.frow label{font-size:12px;color:#889;display:block;margin-bottom:3px;}
+.frow select{background:#0f1a30;color:#ccd;border:1px solid #252545;border-radius:3px;padding:6px 8px;font-size:13px;width:100%;}
+.rbtn{background:#181e38;color:#89b;border:1px solid #252545;border-radius:3px;padding:3px 8px;font-size:11px;cursor:pointer;margin-left:4px;}
+.rbtn:hover{background:#22284a;}
+.curip{font-size:10px;color:#3a9;font-family:Consolas,monospace;margin-top:3px;}
+.kc{vertical-align:top;background:#08080f;}
+.khdr{padding:6px 12px;border-bottom:1px solid #111820;background:#08080f;overflow:hidden;}
+.kttl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#334;}
+.kclr{float:right;background:none;border:none;color:#334;font-size:10px;cursor:pointer;padding:0 2px;}
+.kclr:hover{color:#667;}
+#log{overflow-y:auto;padding:6px 12px;font-family:Consolas,monospace;font-size:12px;line-height:1.6;}
+.kinp{padding:4px 8px;border-top:1px solid #111820;background:#060609;}
+#cmdIn{background:#090912;color:#99b;border:1px solid #141828;border-radius:2px;padding:3px 7px;font-family:Consolas,monospace;font-size:11px;width:85%;}
+.krun{background:#111125;color:#445;border:1px solid #141828;border-radius:2px;padding:3px 8px;font-size:11px;cursor:pointer;}
+.krun:hover{color:#778;}
+/* Device area — full width, scrollable */
+#devarea{overflow-y:auto;background:#13131f;}
+#devList{padding:10px 16px;}
+/* Zone groups */
+.zgrp{margin-bottom:16px;}
+.zhdr{padding:5px 0;border-bottom:1px solid #181828;margin-bottom:8px;overflow:hidden;}
+.zname{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#99b;}
+.zbtn{background:#161625;color:#778;border:1px solid #1e1e35;border-radius:3px;padding:4px 12px;font-size:12px;cursor:pointer;margin-left:6px;float:right;}
+.zbtn:hover{background:#1e1e38;color:#9ab;}
+.zbtn.za{border-color:#a07000;color:#e59000;}
+.zbtn.za:hover{color:#f59e0b;}
+/* Device boxes */
+.dboxes{padding:2px 0 4px;overflow:hidden;}
+.cf{clear:both;}
+.dbox{float:left;background:#1a1a2e;border:1px solid #2a2a50;border-radius:5px;
+  padding:10px 13px;cursor:pointer;width:152px;margin:0 10px 10px 0;}
+.dbox:hover{border-color:#5a5aaa;background:#1e1e38;}
+.dbox.sel{border-color:#f59e0b;background:#1c1800;}
+.dbox.ok{border-color:#2e7d32;background:#0a160a;}
+.dbox.err{border-color:#b71c1c;background:#160a0a;}
+.dbox.pend{border-color:#e09000;}
+.dn{font-size:13px;font-weight:600;color:#dde;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;}
+.di{font-size:12px;color:#5a9aba;font-family:Consolas,monospace;}
+.dot{width:6px;height:6px;border-radius:50%;background:#252545;display:inline-block;margin-right:4px;vertical-align:middle;}
+.dot.ok{background:#4caf50;}.dot.err{background:#f44336;}.dot.pend{background:#f59e0b;}
+/* Detail panel */
+.ddetail{background:#111125;border:1px solid #252548;border-radius:4px;padding:10px 14px;margin-bottom:8px;display:none;}
+.ddetail.vis{display:block;}
+.dd-name{font-size:16px;font-weight:700;color:#eee;}
+.dd-sub{font-size:12px;color:#778;margin-left:10px;}
+.dd-ip{font-size:20px;font-weight:700;color:#6ab8f7;font-family:Consolas,monospace;display:block;margin:6px 0 4px;}
+.dd-mask,.dd-gw{font-size:13px;font-family:Consolas,monospace;color:#4a5a7a;margin-right:12px;}
+.dd-gw:before{content:"gw ";color:#334;}
+.bp{background:#1a1e3a;color:#89b;border:1px solid #252a48;border-radius:3px;padding:6px 12px;font-size:12px;cursor:pointer;margin-right:6px;}
+.bp:hover{background:#20264a;}
+.ba{background:#f59e0b;color:#000;border:none;border-radius:3px;padding:6px 18px;font-size:12px;font-weight:700;cursor:pointer;}
+.ba:hover{background:#fbbf24;}
+.ba:disabled{background:#2a2a2a;color:#444;cursor:not-allowed;}
+/* Bottom bar */
+#bbar{background:#0e0e1e;border-top:2px solid #1a1a2e;padding:8px 16px;}
+.ball{background:#f59e0b;color:#000;border:none;border-radius:4px;padding:8px 22px;font-size:14px;font-weight:700;cursor:pointer;}
+.ball:hover{background:#fbbf24;}
+.bcnt{color:#556;font-size:13px;margin-left:14px;font-family:Consolas,monospace;}
+/* Log lines */
+.li{display:block;}.li.ok{color:#4caf50;}.li.err{color:#f44336;}.li.inf{color:#2a3a50;}.li.warn{color:#f59e0b;}
+/* Help panel */
+#help{display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#0e0e1a;overflow-y:auto;z-index:10;padding:20px 28px;}
+.hbtn{background:#1a1e38;color:#89b;border:1px solid #252a48;border-radius:3px;padding:3px 10px;font-size:12px;cursor:pointer;margin-left:10px;}
+.hbtn:hover{background:#22284a;color:#acd;}
+.hclose{float:right;background:#1a0e0e;color:#e74c3c;border:1px solid #5a1010;border-radius:3px;padding:4px 14px;font-size:12px;cursor:pointer;}
+.hclose:hover{background:#2a1010;}
+.htitle{font-size:18px;font-weight:700;color:#f59e0b;margin-bottom:16px;border-bottom:2px solid #f59e0b;padding-bottom:8px;}
+.hsec{margin-bottom:20px;}
+.hsec h3{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#778;margin-bottom:8px;border-left:3px solid #f59e0b;padding-left:8px;}
+.hcmd{background:#08080f;border:1px solid #1a1a30;border-radius:3px;padding:8px 12px;margin-bottom:6px;font-family:Consolas,monospace;font-size:12px;}
+.hcmd .cmd{color:#7ac3ff;display:block;}
+.hcmd .desc{color:#556;font-size:11px;display:block;margin-top:2px;}
+.htip{background:#0a1020;border-left:3px solid #2a4a8a;padding:8px 12px;font-size:12px;color:#667;border-radius:0 3px 3px 0;margin-top:8px;}
+.htip b{color:#89b;}
+/* Resize handles */
+.col-rsz{width:4px;background:#1a1a2e;cursor:col-resize;padding:0;}
+.col-rsz:hover,.col-rsz.active{background:#f59e0b;}
+#row-rsz{height:4px;background:#1a1a2e;cursor:row-resize;}
+#row-rsz:hover,#row-rsz.active{background:#f59e0b;}
 </style>
 </head>
 <body>
-<h1>&#128225; Network Patch</h1>
-<div class="sub">${projectName} &nbsp;&middot;&nbsp; ${exportDate}</div>
 
-<div id="adminWarn" class="warn">
-  &#9888; Для изменения сетевых настроек требуются права Администратора.<br>
-  Закройте окно, кликните правой кнопкой по файлу &#8594; <b>Запуск от имени администратора</b>.
+<div id="hdr"><span class="hh1">&#128225; Network Patch</span><span class="hmeta">${projectName} &nbsp;&#183;&nbsp; ${exportDate}</span></div>
+
+<div id="admw">&#9888; Требуются права Администратора.&nbsp;<button onclick="relaunchAdmin()" style="background:#b71c1c;color:#fff;border:none;border-radius:3px;padding:3px 10px;font-size:11px;cursor:pointer;">Запустить от Администратора</button></div>
+
+<table id="toptr" cellspacing="0" cellpadding="0">
+<tr>
+<td class="cc" id="ctrlcell">
+  <div class="frow">
+    <label>Адаптер:</label>
+    <select id="adSel" onchange="onAdChange()"><option value="">&#8212; загрузка... &#8212;</option></select>
+    <button class="rbtn" onclick="loadAdapters()">&#8635;</button>
+  </div>
+  <div class="curip" id="curIP"></div>
+  <div class="frow" style="margin-top:6px;">
+    <label>Зона:</label>
+    <select id="zoneSel" onchange="filterZone()">${zoneFilterOpts}</select>
+  </div>
+</td>
+<td class="col-rsz" id="colrsz" onmousedown="startColResize(event)"></td>
+<td class="kc">
+  <div class="khdr" id="khdr"><button class="kclr" onclick="clearLog()">очистить</button><span class="kttl">&#9658; Встроенная консоль</span></div>
+  <div id="log"><span class="li inf">Готов. Выберите адаптер.</span></div>
+  <div class="kinp" id="kinp"><input type="text" id="cmdIn" placeholder="PowerShell..." onkeydown="if(event.keyCode===13)runCmd()"><button class="krun" onclick="runCmd()">&#9658;</button></div>
+</td>
+</tr>
+</table>
+
+<div style="position:relative;">
+<div id="row-rsz" onmousedown="startRowResize(event)"></div>
+<div id="devarea"><div id="devList"></div></div>
+
+<div id="help">
+  <button class="hclose" onclick="toggleHelp()">&#10005; Закрыть</button>
+  <div class="htitle">&#128214; Справка — PowerShell команды</div>
+
+  <div class="hsec">
+    <h3>Просмотр адаптеров и IP</h3>
+    <div class="hcmd"><span class="cmd">Get-NetAdapter</span><span class="desc">Список всех сетевых адаптеров и их статус</span></div>
+    <div class="hcmd"><span class="cmd">Get-NetIPAddress -AddressFamily IPv4</span><span class="desc">Текущие IPv4-адреса всех адаптеров</span></div>
+    <div class="hcmd"><span class="cmd">Get-NetIPConfiguration</span><span class="desc">Полная конфигурация: адаптер + IP + шлюз + DNS</span></div>
+    <div class="hcmd"><span class="cmd">ipconfig /all</span><span class="desc">Классический вывод всех сетевых параметров</span></div>
+  </div>
+
+  <div class="hsec">
+    <h3>Установка IP-адреса</h3>
+    <div class="hcmd"><span class="cmd">New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 192.168.1.10 -PrefixLength 24 -DefaultGateway 192.168.1.1</span><span class="desc">Назначить статический IP со шлюзом</span></div>
+    <div class="hcmd"><span class="cmd">New-NetIPAddress -InterfaceAlias "Ethernet" -IPAddress 192.168.1.10 -PrefixLength 24</span><span class="desc">Назначить IP без шлюза</span></div>
+  </div>
+
+  <div class="hsec">
+    <h3>Сброс / очистка</h3>
+    <div class="hcmd"><span class="cmd">Remove-NetIPAddress -InterfaceAlias "Ethernet" -Confirm:&#36;false</span><span class="desc">Удалить все IP с адаптера</span></div>
+    <div class="hcmd"><span class="cmd">Remove-NetRoute -InterfaceAlias "Ethernet" -Confirm:&#36;false</span><span class="desc">Удалить все маршруты адаптера</span></div>
+    <div class="hcmd"><span class="cmd">Set-NetIPInterface -InterfaceAlias "Ethernet" -Dhcp Enabled</span><span class="desc">Переключить адаптер на DHCP</span></div>
+  </div>
+
+  <div class="hsec">
+    <h3>Пинг и диагностика</h3>
+    <div class="hcmd"><span class="cmd">Test-Connection 192.168.1.1 -Count 4</span><span class="desc">Пинг 4 пакета с результатом</span></div>
+    <div class="hcmd"><span class="cmd">Test-Connection 192.168.1.1 -Count 3 | Select-Object -ExpandProperty ResponseTime | Measure-Object -Average</span><span class="desc">Средний RTT в мс</span></div>
+    <div class="hcmd"><span class="cmd">Test-NetConnection 192.168.1.1 -Port 80</span><span class="desc">Проверка доступности TCP-порта</span></div>
+    <div class="hcmd"><span class="cmd">tracert 192.168.1.1</span><span class="desc">Трассировка маршрута</span></div>
+  </div>
+
+  <div class="hsec">
+    <h3>DNS</h3>
+    <div class="hcmd"><span class="cmd">Get-DnsClientServerAddress -AddressFamily IPv4</span><span class="desc">Текущие DNS-серверы</span></div>
+    <div class="hcmd"><span class="cmd">Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses 8.8.8.8,8.8.4.4</span><span class="desc">Установить DNS вручную</span></div>
+    <div class="hcmd"><span class="cmd">Resolve-DnsName google.com</span><span class="desc">DNS-резолвинг домена</span></div>
+  </div>
+
+  <div class="hsec">
+    <h3>Маршруты и ARP</h3>
+    <div class="hcmd"><span class="cmd">Get-NetRoute -AddressFamily IPv4</span><span class="desc">Таблица маршрутизации IPv4</span></div>
+    <div class="hcmd"><span class="cmd">New-NetRoute -InterfaceAlias "Ethernet" -DestinationPrefix 10.0.0.0/8 -NextHop 192.168.1.1</span><span class="desc">Добавить статический маршрут</span></div>
+    <div class="hcmd"><span class="cmd">Get-NetNeighbor -AddressFamily IPv4</span><span class="desc">ARP-таблица (кэш соседей)</span></div>
+  </div>
+
+  <div class="hsec">
+    <h3>Системная информация</h3>
+    <div class="hcmd"><span class="cmd">&#36;env:COMPUTERNAME</span><span class="desc">Имя компьютера</span></div>
+    <div class="hcmd"><span class="cmd">Get-WmiObject Win32_ComputerSystem | Select-Object Name,Domain</span><span class="desc">Имя компьютера и домен</span></div>
+    <div class="hcmd"><span class="cmd">[bool]([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole("Administrator")</span><span class="desc">Проверка прав администратора (True/False)</span></div>
+  </div>
+
+  <div class="htip">&#9432; <b>Совет:</b> команды выполняются синхронно — длинные операции заморозят окно. Для Test-Connection используйте <b>-Count 2</b> или <b>-Count 3</b>. Переменные пишутся с <b>&#36;</b> (знак доллара).</div>
+</div>
 </div>
 
-<div class="toolbar">
-  <label>Сетевой адаптер:</label>
-  <select id="adSel" onchange="onAdChange()"><option value="">&#8212; загрузка... &#8212;</option></select>
-  <button class="rbtn" onclick="loadAdapters()">&#8635; Обновить</button>
+<div id="bbar">
+  <button class="ball" onclick="applyAll()">&#10003; Применить все (${devs.length})</button>
+  <span class="bcnt" id="applyCount">применено: 0</span>
+  <span style="margin-left:auto;"><button class="hbtn" onclick="toggleHelp()">&#63; Справка</button></span>
 </div>
-
-<div class="section">Устройства в схеме (${devs.length})</div>
-<div class="devices" id="devList"></div>
-
-<div class="bottom-bar">
-  <button class="btn-all" onclick="applyAll()">&#10003; Применить всё</button>
-  <button class="btn-clr" onclick="clearLog()">Очистить журнал</button>
-</div>
-
-<div class="section" style="margin-top:14px;margin-bottom:6px;">Журнал операций</div>
-<div class="log-wrap" id="log"><span class="li inf">Готов к работе.</span></div>
 
 <script language="JScript">
 var devices=${devsJson};
 var adapters=[];
+var appliedCount=0;
+var selectedDev=-1;
+var zoneFilter='';
 
-function runPS(cmd,async_){
+function runPS(cmd){
   try{
     var sh=new ActiveXObject("WScript.Shell");
-    var full='powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '+
-      '"'+cmd.replace(/"/g,"'").replace(/\\\\/g,'\\\\\\\\')+'"';
-    if(async_){ sh.Run(full,0,false); return {ok:true,out:'',err:''}; }
     var ex=sh.Exec('powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "'+
       cmd.replace(/"/g,'\\\\"')+'"');
-    var out='',err='';
+    var out='';
     while(!ex.StdOut.AtEndOfStream) out+=ex.StdOut.ReadLine()+'\\n';
+    var err='';
     while(!ex.StdErr.AtEndOfStream) err+=ex.StdErr.ReadLine()+'\\n';
     return{ok:ex.ExitCode===0,out:out.trim(),err:err.trim()};
   }catch(e){return{ok:false,out:'',err:e.message};}
 }
 
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-function log(msg,cls){
+function addLog(msg,cls){
   var el=document.getElementById('log');
   var sp=document.createElement('span');
   sp.className='li '+(cls||'inf');
-  sp.innerHTML=esc(msg);
+  sp.innerHTML=msg; el.appendChild(sp);
   el.appendChild(document.createElement('br'));
-  el.appendChild(sp);
   el.scrollTop=el.scrollHeight;
 }
-
 function clearLog(){
-  document.getElementById('log').innerHTML='<span class="li inf">Журнал очищен.</span>';
+  document.getElementById('log').innerHTML='<span class="li inf">Очищено.</span><br>';
 }
 
+/* ── ADAPTERS ── */
 function loadAdapters(){
-  log('Получение списка сетевых адаптеров...','inf');
-  var res=runPS("$admin=([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator);"+
-    "Get-NetAdapter|Where-Object{$_.Status -eq \\'Up\\'}|"+
-    "Select-Object Name,MacAddress,InterfaceDescription|ConvertTo-Json -Compress");
+  document.getElementById('adSel').innerHTML='<option value="">&#8212; загрузка... &#8212;</option>';
+  document.getElementById('curIP').innerHTML='';
+  var res=runPS("Get-NetAdapter|Where-Object{\\$_.Status -eq \\'Up\\'}|Select-Object Name,MacAddress|ConvertTo-Json -Compress");
   if(!res.ok||!res.out){
-    // Check admin
     var adm=runPS("[bool]([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
-    if(adm.out.indexOf('False')>=0){
-      document.getElementById('adminWarn').style.display='block';
-    }
-    log('Не удалось получить адаптеры. '+(res.err||''),'err');
+    if(adm.out.indexOf('False')>=0) document.getElementById('admw').style.display='block';
+    addLog('Адаптеры не получены: '+(res.err||'нет прав Admin'),'err');
     return;
   }
   try{
-    var raw=res.out;
-    if(raw.charAt(0)!=='[') raw='['+raw+']';
-    adapters=eval('('+raw+')');
+    var raw=res.out; if(raw.charAt(0)!=='[') raw='['+raw+']';
+    adapters=JSON.parse(raw);
     var sel=document.getElementById('adSel');
     sel.innerHTML='<option value="">&#8212; выберите адаптер &#8212;</option>';
     for(var i=0;i<adapters.length;i++){
       var a=adapters[i];
-      sel.innerHTML+='<option value="'+esc(a.Name)+'">'+esc(a.Name)+
-        (a.MacAddress?' \u2014 '+esc(a.MacAddress):'')+'</option>';
+      sel.innerHTML+='<option value="'+esc(a.Name)+'">'+esc(a.Name)+(a.MacAddress?' &#8212; '+esc(a.MacAddress):'')+'</option>';
     }
-    if(adapters.length===1){
-      sel.selectedIndex=1;
-      onAdChange();
-    }
-    log('Найдено адаптеров: '+adapters.length,'ok');
-  }catch(e){log('Ошибка разбора: '+e.message,'err');}
+    if(adapters.length===1){sel.selectedIndex=1;onAdChange();}
+    addLog('Адаптеров: '+adapters.length,'ok');
+  }catch(e){addLog('Ошибка: '+esc(e.message),'err');}
 }
 
 function onAdChange(){
   var name=document.getElementById('adSel').value;
+  document.getElementById('curIP').innerHTML='';
   if(!name) return;
-  var res=runPS("Get-NetIPAddress -InterfaceAlias \\'"+name+
-    "\\' -AddressFamily IPv4 -ErrorAction SilentlyContinue|"+
-    "Select-Object IPAddress,PrefixLength|ConvertTo-Json -Compress");
+  var res=runPS("Get-NetIPAddress -InterfaceAlias \\'"+name+"\\' -AddressFamily IPv4 -ErrorAction SilentlyContinue|Select-Object IPAddress,PrefixLength|ConvertTo-Json -Compress");
   if(res.ok&&res.out){
     try{
-      var info=eval('('+res.out+')');
-      if(!info.length) info=[info];
-      var cur=[];
-      for(var i=0;i<info.length;i++) cur.push(info[i].IPAddress+'/'+info[i].PrefixLength);
-      log('Адаптер ['+name+'] текущий IP: '+cur.join(', '),'inf');
+      var info=JSON.parse(res.out); if(!Array.isArray(info)) info=[info];
+      var ips=[];
+      for(var i=0;i<info.length;i++) ips.push(info[i].IPAddress+'/'+info[i].PrefixLength);
+      document.getElementById('curIP').innerHTML='&#8594; <b>'+esc(ips.join(', '))+'</b>';
+      addLog('['+esc(name)+'] IP: '+esc(ips.join(', ')),'inf');
     }catch(e){}
-  }else{
-    log('Адаптер ['+name+'] — не удалось получить текущий IP','warn');
-  }
+  } else { addLog('['+esc(name)+'] текущий IP не определён','inf'); }
 }
 
+/* ── ZONE FILTER ── */
+function filterZone(){
+  zoneFilter=document.getElementById('zoneSel').value;
+  renderDevices();
+}
+
+/* ── DEVICE SELECTION ── */
+function selectDev(idx){
+  if(selectedDev===idx){ selectedDev=-1; }
+  else { selectedDev=idx; }
+  renderDevices();
+}
+
+/* ── HELPERS ── */
 function maskToPrefix(mask){
   if(!mask) return '24';
   if(/^\\/\\d+$/.test(mask)) return mask.slice(1);
-  var parts=mask.split('.');
-  if(parts.length!==4) return '24';
+  var parts=mask.split('.'); if(parts.length!==4) return '24';
   var bits=0;
   for(var i=0;i<4;i++){var n=parseInt(parts[i],10);while(n){bits+=(n&1);n>>=1;}}
   return String(bits);
 }
 
-function setDot(idx,state){
-  var dot=document.getElementById('dot'+idx);
-  var card=document.getElementById('card'+idx);
-  if(!dot||!card) return;
-  dot.className='dot '+(state||'');
-  card.className='card '+(state||'');
+function setBoxState(idx,state){
+  var b=document.getElementById('dbox'+idx);
+  var dot=document.getElementById('ddot'+idx);
+  if(!b) return;
+  // preserve sel class
+  var isSel=(b.className.indexOf('sel')>=0);
+  b.className='dbox'+(state?' '+state:'')+(isSel?' sel':'');
+  if(dot) dot.className='dbox-dot'+(state?' '+state:'');
+  // mirror state on device object for re-render
+  devices[idx]._state=state||'';
 }
 
+/* ── APPLY / PING ── */
 function applyDevice(idx){
   var adapter=document.getElementById('adSel').value;
-  if(!adapter){log('Выберите сетевой адаптер!','err');return;}
+  if(!adapter){addLog('Сначала выберите адаптер!','err');return;}
   var d=devices[idx];
-  if(!d.ip){log('Нет IP-адреса для '+d.name,'err');return;}
+  if(!d.ip){addLog('Нет IP: '+esc(d.name),'err');return;}
   var prefix=maskToPrefix(d.mask);
-  setDot(idx,'pend');
-  log('Применение ['+d.name+']: '+d.ip+'/'+prefix+(d.gw?' gw '+d.gw:'')+'  \u2192  ['+adapter+']...','inf');
-  var ps="$a=\\'"+adapter+"\\';"+
-    "Remove-NetIPAddress -InterfaceAlias $a -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;"+
-    "Remove-NetRoute -InterfaceAlias $a -AddressFamily IPv4 -Confirm:$false -ErrorAction SilentlyContinue;"+
-    "New-NetIPAddress -InterfaceAlias $a -AddressFamily IPv4 -IPAddress \\'"+d.ip+
+  setBoxState(idx,'pend');
+  var btn=document.getElementById('abtn'+idx);
+  if(btn) btn.disabled=true;
+  addLog('&#9654; ['+esc(d.name)+']: '+esc(d.ip)+'/'+prefix+(d.gw?' gw '+esc(d.gw):''),'warn');
+  var ps="\\$a=\\'"+adapter.replace(/'/g,"''")+"\\';"+
+    "Remove-NetIPAddress -InterfaceAlias \\$a -AddressFamily IPv4 -Confirm:\\$false -ErrorAction SilentlyContinue;"+
+    "Remove-NetRoute    -InterfaceAlias \\$a -AddressFamily IPv4 -Confirm:\\$false -ErrorAction SilentlyContinue;"+
+    "New-NetIPAddress   -InterfaceAlias \\$a -AddressFamily IPv4 -IPAddress \\'"+d.ip+
     "\\' -PrefixLength "+prefix+
-    (d.gw?" -DefaultGateway \\'"+d.gw+"\\'":"")+
-    " -ErrorAction Stop";
+    (d.gw?" -DefaultGateway \\'"+d.gw+"\\'":" -ErrorAction Stop")+" -ErrorAction Stop";
   var res=runPS(ps);
   if(res.ok){
-    setDot(idx,'ok');
-    log('\u2713 '+d.name+': '+d.ip+'/'+prefix+(d.gw?' gw '+d.gw:'')+' \u2014 Применено','ok');
+    setBoxState(idx,'ok');
+    appliedCount++;
+    document.getElementById('applyCount').innerHTML='применено: '+appliedCount;
+    addLog('&#10003; '+esc(d.name)+' &#8592; '+esc(d.ip)+'/'+prefix,'ok');
+    onAdChange();
   }else{
-    setDot(idx,'err');
-    log('\u2717 '+d.name+': '+(res.err||res.out||'Ошибка (возможно нет прав Admin)'),'err');
-    if((res.err+res.out).indexOf('Access')>=0||!res.err){
-      document.getElementById('adminWarn').style.display='block';
-    }
+    setBoxState(idx,'err');
+    if(btn) btn.disabled=false;
+    var em=res.err||res.out||'Ошибка';
+    addLog('&#10007; '+esc(d.name)+': '+esc(em),'err');
+    if(em.indexOf('Access')>=0||em.indexOf('denied')>=0)
+      document.getElementById('admw').style.display='block';
   }
 }
 
 function pingDevice(idx){
   var d=devices[idx];
-  if(!d.ip){log('Нет IP для '+d.name,'err');return;}
-  log('Пинг '+d.ip+'...','inf');
+  if(!d.ip){addLog('Нет IP: '+esc(d.name),'err');return;}
+  addLog('&#128280; ping '+esc(d.ip)+'...','inf');
   var res=runPS("Test-Connection -ComputerName \\'"+d.ip+
-    "\\' -Count 3 -ErrorAction SilentlyContinue|"+
-    "Select-Object -ExpandProperty ResponseTime|"+
+    "\\' -Count 3 -ErrorAction SilentlyContinue|Select-Object -ExpandProperty ResponseTime|"+
     "Measure-Object -Average|Select-Object -ExpandProperty Average");
-  if(res.ok&&res.out&&res.out!==''){
-    var avg=Math.round(parseFloat(res.out));
-    log('\u2713 '+d.ip+' \u2014 отвечает, avg '+avg+' мс','ok');
-  }else{
-    log('\u2717 '+d.ip+' \u2014 нет ответа','err');
-  }
+  if(res.ok&&res.out&&res.out!=='')
+    addLog('&#10003; '+esc(d.ip)+' avg '+Math.round(parseFloat(res.out))+' ms','ok');
+  else
+    addLog('&#10007; '+esc(d.ip)+' &#8212; нет ответа','err');
+}
+
+function pingZone(idxs){
+  addLog('--- ping зоны ('+idxs.length+' уст.) ---','inf');
+  for(var i=0;i<idxs.length;i++) pingDevice(idxs[i]);
 }
 
 function applyAll(){
   var adapter=document.getElementById('adSel').value;
-  if(!adapter){log('Выберите сетевой адаптер перед применением!','err');return;}
-  if(!window.confirm('Применить сетевые настройки ВСЕХ '+devices.length+' устройств на адаптер ['+adapter+']?\\n\\nЭто заменит текущие настройки адаптера!')){return;}
-  log('=== Пакетное применение ('+devices.length+' устройств) ===','warn');
-  for(var i=0;i<devices.length;i++){
-    if(devices[i].ip) applyDevice(i);
+  if(!adapter){addLog('Сначала выберите адаптер!','err');return;}
+  var active=[];
+  for(var i=0;i<devices.length;i++){if(devices[i].ip) active.push(i);}
+  if(!active.length){addLog('Нет устройств с IP.','err');return;}
+  if(!confirm('Применить '+active.length+' устройств на ['+adapter+']?')) return;
+  addLog('=== Применение: '+active.length+' уст. ===','warn');
+  var j=0;
+  function next(){
+    if(j>=active.length){addLog('=== Готово ('+appliedCount+'/'+active.length+') ===','ok');return;}
+    applyDevice(active[j++]);
+    setTimeout(next,50);
   }
+  setTimeout(next,50);
 }
 
+/* ── RENDER ── */
 function renderDevices(){
   var list=document.getElementById('devList');
   if(!devices.length){
-    list.innerHTML='<div class="no-dev">Нет устройств с сетевыми настройками</div>';
+    list.innerHTML='<div style="text-align:center;padding:40px;color:#556;">Нет устройств с IP</div>';
+    return;
+  }
+  var zones={}, zoneOrder=[];
+  for(var i=0;i<devices.length;i++){
+    var z=devices[i].zone||'';
+    if(zoneFilter && z!==zoneFilter) continue;
+    if(!zones[z]){zones[z]=[];zoneOrder.push(z);}
+    zones[z].push(i);
+  }
+  if(!zoneOrder.length){
+    list.innerHTML='<div style="text-align:center;padding:40px;color:#556;">Нет устройств в выбранной зоне</div>';
     return;
   }
   var html='';
-  for(var i=0;i<devices.length;i++){
-    var d=devices[i];
-    var netStr=d.ip||'(нет IP)';
-    if(d.mask) netStr+=' / '+d.mask;
-    var gwStr=d.gw?'<span class="gw">gw '+esc(d.gw)+'</span>':'';
-    html+='<div class="card" id="card'+i+'">'+
-      '<div class="dot" id="dot'+i+'"></div>'+
-      '<div class="info">'+
-        '<div class="dname">'+esc(d.name)+(d.sub?' <span style="color:#666;font-weight:400;font-size:12px">\u2014 '+esc(d.sub)+'</span>':'')+'</div>'+
-        '<div class="dzone">'+(d.zone?'&#128205; '+esc(d.zone):'&#9711; Без зоны')+'</div>'+
-        '<div class="dnet">'+esc(netStr)+' '+gwStr+'</div>'+
+  for(var zi=0;zi<zoneOrder.length;zi++){
+    var zname=zoneOrder[zi];
+    var idxs=zones[zname];
+    var idxsStr=idxs.join(',');
+    html+='<div class="zgrp">'+
+      '<div class="zhdr">'+
+        '<button class="zbtn za" onclick="applyZone(['+idxsStr+'])">&#10003; Применить</button>'+
+        '<button class="zbtn" onclick="pingZone(['+idxsStr+'])">&#128280; Пинг</button>'+
+        '<span class="zname">'+(zname?'&#9632; '+esc(zname):'&#9633; Без зоны')+'</span>'+
       '</div>'+
-      '<div class="actions">'+
-        '<button class="btn-ping" onclick="pingDevice('+i+')">&#128280; Пинг</button>'+
-        '<button class="btn-apply" onclick="applyDevice('+i+')">Применить</button>'+
-      '</div>'+
-    '</div>';
+      '<div class="dboxes">';
+    for(var k=0;k<idxs.length;k++){
+      var idx=idxs[k];
+      var d=devices[idx];
+      var st=d._state||'';
+      var isSel=(selectedDev===idx);
+      html+='<div class="dbox'+(st?' '+st:'')+(isSel?' sel':'')+'" id="dbox'+idx+'" onclick="selectDev('+idx+')">'+
+        '<span class="dn"><span class="dot'+(st?' '+st:'')+'" id="ddot'+idx+'"></span>'+esc(d.name)+'</span>'+
+        '<span class="di">'+esc(d.ip||'&#8212;')+'</span>'+
+      '</div>';
+    }
+    html+='<div class="cf"></div></div>';
+
+    var selInZone=-1;
+    for(var k2=0;k2<idxs.length;k2++){if(idxs[k2]===selectedDev){selInZone=selectedDev;break;}}
+    if(selInZone>=0){
+      var dd=devices[selInZone];
+      html+='<div class="ddetail vis" id="ddetail'+selInZone+'">'+
+        '<span class="dd-name">'+esc(dd.name)+'</span>'+(dd.sub?'<span class="dd-sub">'+esc(dd.sub)+'</span>':'')+
+        '<span class="dd-ip">'+esc(dd.ip||'&#8212;')+'</span>'+
+        '<span>'+(dd.mask?'<span class="dd-mask">'+esc(dd.mask)+'</span>':'')+
+          (dd.gw?'<span class="dd-gw">'+esc(dd.gw)+'</span>':'')+'</span>'+
+        '<div style="margin-top:8px;">'+
+          '<button class="bp" onclick="pingDevice('+selInZone+')">&#128280; Пинг</button>'+
+          '<button class="ba" id="abtn'+selInZone+'" onclick="applyDevice('+selInZone+')">&#10003; Применить</button>'+
+        '</div>'+
+      '</div>';
+    }
+    html+='</div>';
   }
   list.innerHTML=html;
 }
 
+function applyZone(idxs){
+  var adapter=document.getElementById('adSel').value;
+  if(!adapter){addLog('Сначала выберите адаптер!','err');return;}
+  var active=[];
+  for(var i=0;i<idxs.length;i++){if(devices[idxs[i]].ip) active.push(idxs[i]);}
+  if(!active.length){addLog('В зоне нет устройств с IP.','err');return;}
+  if(!confirm('Применить '+active.length+' уст. из зоны на ['+adapter+']?')) return;
+  addLog('--- Применение зоны: '+active.length+' уст. ---','warn');
+  var j=0;
+  function next(){
+    if(j>=active.length){addLog('--- Зона готова ---','ok');return;}
+    applyDevice(active[j++]); setTimeout(next,50);
+  }
+  setTimeout(next,50);
+}
+
+/* ── INTERACTIVE CONSOLE ── */
+function runCmd(){
+  var inp=document.getElementById('cmdIn');
+  var cmd=inp?(inp.value||'').trim():'';
+  if(!cmd) return;
+  addLog('PS&gt; '+esc(cmd),'warn');
+  var res=runPS(cmd);
+  if(res.out){
+    var lines=res.out.split('\\n');
+    for(var i=0;i<lines.length;i++){
+      var l=lines[i].trim(); if(l) addLog(esc(l), res.ok?'ok':'err');
+    }
+  }
+  if(!res.ok && res.err){
+    var elines=res.err.split('\\n');
+    for(var j=0;j<elines.length;j++){
+      var el=elines[j].trim(); if(el) addLog(esc(el),'err');
+    }
+  }
+  if(inp) inp.value='';
+}
+
+/* ── LAYOUT ── */
+var _topH=175, _ctrlW=260;
+function resizeLayout(){
+  var H=document.documentElement.clientHeight||document.body.clientHeight;
+  var hdr=document.getElementById('hdr'); var hdrH=hdr?hdr.offsetHeight:32;
+  var admw=document.getElementById('admw'); var admwH=(admw&&admw.style.display!='none')?admw.offsetHeight:0;
+  var bbar=document.getElementById('bbar'); var bbarH=bbar?bbar.offsetHeight:42;
+
+  // 1. Shrink log FIRST so table can shrink
+  var khdrH=28,kinpH=28;
+  var kh=document.getElementById('khdr'); if(kh) khdrH=kh.offsetHeight;
+  var ki=document.getElementById('kinp'); if(ki) kinpH=ki.offsetHeight;
+  var logH=_topH-khdrH-kinpH; if(logH<20) logH=20;
+  var log=document.getElementById('log'); if(log) log.style.height=logH+'px';
+
+  // 2. Set table height
+  var t=document.getElementById('toptr'); if(t) t.style.height=_topH+'px';
+
+  // 3. Set ctrl cell width
+  var c=document.getElementById('ctrlcell'); if(c) c.style.width=_ctrlW+'px';
+
+  // 4. devarea
+  var devH=H-hdrH-admwH-_topH-4-bbarH; if(devH<60) devH=60;
+  var dev=document.getElementById('devarea'); if(dev) dev.style.height=devH+'px';
+  var help=document.getElementById('help'); if(help) help.style.height=devH+'px';
+}
+window.onresize=resizeLayout;
+
+/* ── COLUMN RESIZE ── */
+var _cRsz=false,_cX=0;
+function startColResize(e){
+  e=e||window.event; _cRsz=true; _cX=e.clientX;
+  document.getElementById('colrsz').className='col-rsz active';
+  document.onmousemove=doColResize; document.onmouseup=stopColResize;
+  e.returnValue=false;
+}
+function doColResize(e){
+  if(!_cRsz) return; e=e||window.event;
+  _ctrlW=_ctrlW+(e.clientX-_cX); _cX=e.clientX;
+  if(_ctrlW<120) _ctrlW=120; if(_ctrlW>700) _ctrlW=700;
+  var c=document.getElementById('ctrlcell'); if(c) c.style.width=_ctrlW+'px';
+}
+function stopColResize(){
+  _cRsz=false;
+  var r=document.getElementById('colrsz'); if(r) r.className='col-rsz';
+  document.onmousemove=null; document.onmouseup=null;
+}
+
+/* ── ROW RESIZE ── */
+var _rRsz=false,_rY=0;
+function startRowResize(e){
+  e=e||window.event; _rRsz=true; _rY=e.clientY;
+  document.getElementById('row-rsz').className='active';
+  document.onmousemove=doRowResize; document.onmouseup=stopRowResize;
+  e.returnValue=false;
+}
+function doRowResize(e){
+  if(!_rRsz) return; e=e||window.event;
+  _topH=_topH+(e.clientY-_rY); _rY=e.clientY;
+  if(_topH<80) _topH=80; if(_topH>700) _topH=700;
+  resizeLayout();
+}
+function stopRowResize(){
+  _rRsz=false;
+  var r=document.getElementById('row-rsz'); if(r) r.className='';
+  document.onmousemove=null; document.onmouseup=null;
+}
+
+/* ── HELP ── */
+function toggleHelp(){
+  var h=document.getElementById('help');
+  if(!h) return;
+  h.style.display=(h.style.display==='block'?'none':'block');
+}
+
+/* ── ADMIN RELAUNCH ── */
+function relaunchAdmin(){
+  try{
+    var loc=window.location.pathname.replace(/\\//g,'\\\\');
+    if(loc.charAt(0)==='\\\\') loc=loc.slice(1);
+    var sh=new ActiveXObject('Shell.Application');
+    sh.ShellExecute('mshta.exe','"'+loc+'"','','runas',1);
+    window.setTimeout(function(){window.close();},500);
+  }catch(e){
+    addLog('Ошибка перезапуска: '+esc(e.message),'err');
+  }
+}
+
 window.onload=function(){
+  resizeLayout();
   renderDevices();
   loadAdapters();
+  var adm=runPS("[bool]([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)");
+  if(adm.out.indexOf('True')>=0){
+    addLog('&#128737; Режим администратора','ok');
+  } else {
+    addLog('&#9888; Без прав Admin','err');
+    document.getElementById('admw').style.display='block';
+    resizeLayout();
+  }
 };
 </script>
 </body>
@@ -4063,8 +4437,670 @@ window.onload=function(){
   log('Экспортирован network-patch.hta ('+devs.length+' устройств)');
 }
 
-function printNetTable(){
-  exportNetTable('html');
+// ═══════════════════════════════════════════════════════════
+// PING MAP HTA EXPORT
+// ═══════════════════════════════════════════════════════════
+function exportNetPing(){
+  closeNetExportMenu();
+  const projectName = (document.title||'Show Signal Flow').replace(/\s*—.*$/,'').trim();
+  const exportDate  = new Date().toLocaleString('ru-RU');
+
+  // Collect devices with IP only
+  const devs = nodes
+    .filter(n => n.ip)
+    .map(n => {
+      const z = zones.find(z => nodeInZone(n, z));
+      return {
+        name: n.title || n.id,
+        sub:  n.sub1  || '',
+        zone: z ? (z.title||z.label||'Зона') : '',
+        ip:   n.ip   || ''
+      };
+    });
+
+  if (!devs.length) {
+    alert('Нет устройств с IP-адресами. Заполните IP в панели Сеть.');
+    return;
+  }
+
+  const devsJson = JSON.stringify(devs);
+
+  const zoneNames = [];
+  const zoneSet = {};
+  devs.forEach(function(d){ if(d.zone && !zoneSet[d.zone]){ zoneSet[d.zone]=1; zoneNames.push(d.zone); } });
+  const zoneFilterOpts = '<option value="">Все зоны</option>' +
+    zoneNames.map(function(z){ return '<option value="'+z+'">'+z+'</option>'; }).join('');
+
+  const hta = `\uFEFF<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta http-equiv="x-ua-compatible" content="IE=edge">
+<title>Ping Map &#8212; ${projectName}</title>
+<HTA:APPLICATION
+  APPLICATIONNAME="Ping Map"
+  BORDER="thin" BORDERSTYLE="normal" CAPTION="yes"
+  MAXIMIZEBUTTON="yes" MINIMIZEBUTTON="yes"
+  SCROLL="no" SINGLEINSTANCE="yes" WINDOWSTATE="maximize"
+/>
+<style>
+html,body{height:100%;margin:0;padding:0;overflow:hidden;}
+body{background:#0d1117;color:#c9d1d9;font-family:"Segoe UI",Arial,sans-serif;font-size:15px;}
+*{box-sizing:border-box;}
+/* Header */
+#hdr{background:#0f1923;border-bottom:2px solid #0ea5e9;padding:7px 16px;overflow:hidden;}
+.hh1{font-size:17px;color:#0ea5e9;font-weight:700;float:left;}
+.hmeta{font-size:12px;color:#4a6080;margin-left:10px;float:left;line-height:1.7;}
+/* Stats bar */
+#sbar{background:#0c1520;border-bottom:1px solid #0c2a40;padding:6px 16px;overflow:hidden;white-space:nowrap;}
+.sstat{display:inline-block;margin-right:24px;font-size:13px;}
+.sstat .sv{font-size:18px;font-weight:700;font-family:Consolas,monospace;margin-right:4px;}
+.sv.ok{color:#22c55e;}.sv.err{color:#ef4444;}.sv.neu{color:#94a3b8;}
+.sstat .sl{font-size:11px;color:#4a6080;}
+.spct{display:inline-block;background:#0e2030;border:1px solid #0c2a40;border-radius:10px;
+  width:110px;height:14px;vertical-align:middle;overflow:hidden;margin-left:2px;}
+.spct-fill{height:100%;background:#22c55e;border-radius:10px;transition:width .3s;}
+/* Controls */
+#ctrlbar{background:#0c1520;border-bottom:1px solid #0c2a40;padding:6px 16px;overflow:hidden;}
+.cbtn{background:#0c2a40;color:#0ea5e9;border:1px solid #0c3a58;border-radius:4px;
+  padding:6px 18px;font-size:13px;font-weight:700;cursor:pointer;margin-right:8px;}
+.cbtn:hover{background:#0e3a58;}.cbtn.stop{background:#2a0c0c;color:#ef4444;border-color:#5a1010;}
+.cbtn.stop:hover{background:#3a1010;}
+.zfsel{background:#0c1a28;color:#7ab;border:1px solid #0c2a40;border-radius:3px;
+  padding:5px 8px;font-size:13px;margin-left:10px;}
+/* Device area */
+#devarea{overflow-y:auto;background:#0d1117;}
+#devList{padding:10px 16px;}
+/* Zone groups */
+.zgrp{margin-bottom:20px;}
+.zhdr{padding:5px 0;border-bottom:1px solid #0c2030;margin-bottom:10px;overflow:hidden;}
+.zname{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#4a8aaa;}
+.zbtn{background:#0c1e30;color:#4a8aaa;border:1px solid #0c2a40;border-radius:3px;
+  padding:4px 12px;font-size:12px;cursor:pointer;margin-left:6px;float:right;}
+.zbtn:hover{background:#0e2a44;color:#6ab;}
+.zsum{float:right;font-size:11px;color:#2a4a5a;font-family:Consolas,monospace;margin-left:10px;line-height:2.2;}
+/* Device ping cards */
+.dboxes{padding:2px 0 4px;overflow:hidden;}
+.cf{clear:both;}
+.pbox{float:left;background:#0f1923;border:1px solid #1a3040;border-radius:6px;
+  padding:12px 10px 10px;cursor:pointer;width:136px;margin:0 10px 10px 0;text-align:center;}
+.pbox:hover{border-color:#0ea5e9;background:#111c28;}
+.pbox.alive{border-color:#22c55e;background:#071410;}
+.pbox.dead{border-color:#ef4444;background:#140707;}
+.pbox.pinging{border-color:#f59e0b;background:#140f00;}
+/* Big status circle */
+.pcircle{width:36px;height:36px;border-radius:50%;margin:0 auto 8px;border:3px solid #1a3040;
+  background:#0c1520;transition:background .3s,border-color .3s,box-shadow .3s;}
+.pbox.alive .pcircle{background:#22c55e;border-color:#22c55e;box-shadow:0 0 10px #22c55e88;}
+.pbox.dead  .pcircle{background:#ef4444;border-color:#ef4444;box-shadow:0 0 8px #ef444466;}
+.pbox.pinging .pcircle{background:#f59e0b;border-color:#f59e0b;}
+.pn{font-size:12px;font-weight:600;color:#c9d1d9;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;margin-bottom:2px;}
+.pip{font-size:11px;color:#2a7aaa;font-family:Consolas,monospace;margin-bottom:3px;}
+.prtt{font-size:11px;font-family:Consolas,monospace;color:#4a6080;min-height:14px;}
+.pbox.alive .prtt{color:#22c55e;}.pbox.dead .prtt{color:#ef4444;}
+/* Log panel at bottom */
+#logwrap{border-top:1px solid #0c2a40;background:#080d12;overflow:hidden;}
+#loghdr{padding:5px 12px;background:#0c1520;overflow:hidden;border-bottom:1px solid #0c2030;}
+.lttl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#1a3a50;}
+.lclr{float:right;background:none;border:none;color:#1a3a50;font-size:10px;cursor:pointer;padding:0;}
+.lclr:hover{color:#4a6080;}
+#log{overflow-y:auto;padding:5px 12px;font-family:Consolas,monospace;font-size:11px;line-height:1.6;}
+.li{display:block;}.li.ok{color:#22c55e;}.li.err{color:#ef4444;}
+.li.inf{color:#1a3a50;}.li.warn{color:#f59e0b;}
+/* Row resize handle */
+#row-rsz{height:4px;background:#0c2a40;cursor:row-resize;}
+#row-rsz:hover,#row-rsz.active{background:#0ea5e9;}
+</style>
+</head>
+<body>
+
+<div id="hdr">
+  <span class="hh1">&#128225; Ping Map</span>
+  <span class="hmeta">${projectName} &nbsp;&#183;&nbsp; ${exportDate}</span>
+</div>
+
+<div id="sbar">
+  <span class="sstat"><span class="sv ok" id="sCntOk">0</span><span class="sl">онлайн</span></span>
+  <span class="sstat"><span class="sv err" id="sCntErr">0</span><span class="sl">нет ответа</span></span>
+  <span class="sstat"><span class="sv neu" id="sCntTot">${devs.length}</span><span class="sl">всего</span></span>
+  <span class="sstat"><span class="sv neu" id="sAvg">&#8212;</span><span class="sl">avg RTT</span></span>
+  <span class="sstat">
+    <span class="sv neu" id="sPct">0%</span>
+    <span class="spct"><span class="spct-fill" id="sPctBar" style="width:0%"></span></span>
+  </span>
+</div>
+
+<div id="ctrlbar">
+  <button class="cbtn" id="btnAll" onclick="pingAll()">&#9654; Пинг всех</button>
+  <button class="cbtn stop" id="btnStop" onclick="stopAll()" style="display:none">&#9646;&#9646; Стоп</button>
+  <select class="zfsel" id="zoneSel" onchange="filterZone()">${zoneFilterOpts}</select>
+</div>
+
+<div id="devarea"><div id="devList"></div></div>
+
+<div id="row-rsz" onmousedown="startRowResize(event)"></div>
+
+<div id="logwrap">
+  <div id="loghdr">
+    <button class="lclr" onclick="clearLog()">очистить</button>
+    <span class="lttl">&#9658; Лог пингов</span>
+  </div>
+  <div id="log"><span class="li inf">Готов. Нажмите "Пинг всех".</span></div>
+</div>
+
+<script language="JScript">
+var devices=${devsJson};
+var zoneFilter='';
+var _pingQ=[];
+var _pinging=false;
+var _stopReq=false;
+var _rttOk=[], _cntOk=0, _cntErr=0;
+
+function runPS(cmd){
+  try{
+    var sh=new ActiveXObject("WScript.Shell");
+    var ex=sh.Exec('powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "'+
+      cmd.replace(/"/g,'\\\\"')+'"');
+    var out='';
+    while(!ex.StdOut.AtEndOfStream) out+=ex.StdOut.ReadLine()+'\\n';
+    var err='';
+    while(!ex.StdErr.AtEndOfStream) err+=ex.StdErr.ReadLine()+'\\n';
+    return{ok:ex.ExitCode===0,out:out.trim(),err:err.trim()};
+  }catch(e){return{ok:false,out:'',err:e.message};}
+}
+
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function addLog(msg,cls){
+  var el=document.getElementById('log');
+  var sp=document.createElement('span');
+  sp.className='li '+(cls||'inf');
+  sp.innerHTML=msg; el.appendChild(sp);
+  el.appendChild(document.createElement('br'));
+  el.scrollTop=el.scrollHeight;
+}
+function clearLog(){
+  document.getElementById('log').innerHTML='<span class="li inf">Очищено.</span><br>';
+}
+
+function setBoxState(idx,state,rtt){
+  var b=document.getElementById('pb'+idx);
+  if(!b) return;
+  b.className='pbox'+(state?' '+state:'');
+  var rttEl=document.getElementById('prtt'+idx);
+  if(rttEl){
+    if(state==='alive' && rtt!=null) rttEl.innerHTML=Math.round(rtt)+' ms';
+    else if(state==='dead') rttEl.innerHTML='timeout';
+    else if(state==='pinging') rttEl.innerHTML='&#8943;';
+    else rttEl.innerHTML='';
+  }
+  devices[idx]._state=state||'';
+  if(rtt!=null) devices[idx]._rtt=rtt;
+}
+
+function updateStats(){
+  _cntOk=0; _cntErr=0; _rttOk=[];
+  for(var i=0;i<devices.length;i++){
+    if(devices[i]._state==='alive'){ _cntOk++; if(devices[i]._rtt) _rttOk.push(devices[i]._rtt); }
+    else if(devices[i]._state==='dead'){ _cntErr++; }
+  }
+  var tot=devices.length;
+  var pct=tot>0?Math.round(_cntOk/tot*100):0;
+  var avgRtt=_rttOk.length?Math.round(_rttOk.reduce(function(a,b){return a+b;},0)/_rttOk.length):null;
+  document.getElementById('sCntOk').innerHTML=_cntOk;
+  document.getElementById('sCntErr').innerHTML=_cntErr;
+  document.getElementById('sPct').innerHTML=pct+'%';
+  document.getElementById('sPctBar').style.width=pct+'%';
+  document.getElementById('sAvg').innerHTML=avgRtt!=null?avgRtt+' ms':'&#8212;';
+}
+
+/* ── ZONE FILTER ── */
+function filterZone(){
+  zoneFilter=document.getElementById('zoneSel').value;
+  renderDevices();
+}
+
+/* ── PING ONE DEVICE ── */
+function pingOne(idx){
+  var d=devices[idx];
+  if(!d||!d.ip) return;
+  setBoxState(idx,'pinging',null);
+  addLog('&#128280; '+esc(d.name)+' ('+esc(d.ip)+')...','inf');
+  var res=runPS("Test-Connection -ComputerName \\'"+d.ip+
+    "\\' -Count 2 -ErrorAction SilentlyContinue|Select-Object -ExpandProperty ResponseTime|"+
+    "Measure-Object -Average|Select-Object -ExpandProperty Average");
+  if(res.ok && res.out && res.out!=''){
+    var rtt=parseFloat(res.out);
+    setBoxState(idx,'alive',rtt);
+    addLog('&#10003; '+esc(d.name)+' &#8592; '+Math.round(rtt)+' ms','ok');
+  } else {
+    setBoxState(idx,'dead',null);
+    addLog('&#10007; '+esc(d.name)+' &#8212; нет ответа','err');
+  }
+  updateStats();
+}
+
+/* ── QUEUE-BASED SEQUENTIAL PING ALL ── */
+function pingAll(){
+  if(_pinging) return;
+  _stopReq=false;
+  _pingQ=[];
+  for(var i=0;i<devices.length;i++){
+    if(devices[i].ip){
+      setBoxState(i,'',null);
+      _pingQ.push(i);
+    }
+  }
+  for(var i=0;i<devices.length;i++){
+    devices[i]._state=''; devices[i]._rtt=null;
+  }
+  updateStats();
+  if(!_pingQ.length){addLog('Нет устройств с IP.','err');return;}
+  _pinging=true;
+  document.getElementById('btnAll').style.display='none';
+  document.getElementById('btnStop').style.display='';
+  addLog('=== Пинг '+_pingQ.length+' устройств ===','warn');
+  renderDevices();
+  pingNext();
+}
+
+function pingNext(){
+  if(_stopReq||!_pingQ.length){
+    _pinging=false; _stopReq=false;
+    document.getElementById('btnAll').style.display='';
+    document.getElementById('btnStop').style.display='none';
+    addLog('=== Готово (онлайн: '+_cntOk+'/'+devices.length+') ===','ok');
+    return;
+  }
+  var idx=_pingQ.shift();
+  pingOne(idx);
+  window.setTimeout(pingNext,50);
+}
+
+function stopAll(){
+  _stopReq=true;
+  addLog('--- Остановлено ---','warn');
+}
+
+/* ── PING ZONE ── */
+function pingZone(idxs){
+  addLog('--- ping зоны ('+idxs.length+') ---','warn');
+  for(var i=0;i<idxs.length;i++){
+    setBoxState(idxs[i],'pinging',null);
+  }
+  for(var i=0;i<idxs.length;i++){
+    pingOne(idxs[i]);
+  }
+  updateStats();
+}
+
+/* ── RENDER ── */
+function renderDevices(){
+  var list=document.getElementById('devList');
+  if(!devices.length){
+    list.innerHTML='<div style="text-align:center;padding:40px;color:#1a3a50;">Нет устройств с IP</div>';
+    return;
+  }
+  var zonesMap={}, zoneOrder=[];
+  for(var i=0;i<devices.length;i++){
+    var z=devices[i].zone||'';
+    if(zoneFilter && z!==zoneFilter) continue;
+    if(!zonesMap[z]){zonesMap[z]=[];zoneOrder.push(z);}
+    zonesMap[z].push(i);
+  }
+  if(!zoneOrder.length){
+    list.innerHTML='<div style="text-align:center;padding:40px;color:#1a3a50;">Нет устройств в выбранной зоне</div>';
+    return;
+  }
+  var html='';
+  for(var zi=0;zi<zoneOrder.length;zi++){
+    var zname=zoneOrder[zi];
+    var idxs=zonesMap[zname];
+    var idxsStr=idxs.join(',');
+    var zOk=0,zTot=idxs.length;
+    for(var k=0;k<idxs.length;k++){if(devices[idxs[k]]._state==='alive') zOk++;}
+    html+='<div class="zgrp">'+
+      '<div class="zhdr">'+
+        '<button class="zbtn" onclick="pingZone(['+idxsStr+'])">&#9654; Пинг зоны</button>'+
+        '<span class="zsum">'+zOk+'/'+zTot+'</span>'+
+        '<span class="zname">'+(zname?'&#9632; '+esc(zname):'&#9633; Без зоны')+'</span>'+
+      '</div>'+
+      '<div class="dboxes">';
+    for(var k=0;k<idxs.length;k++){
+      var idx=idxs[k];
+      var d=devices[idx];
+      var st=d._state||'';
+      var rttTxt='';
+      if(st==='alive'&&d._rtt) rttTxt=Math.round(d._rtt)+' ms';
+      else if(st==='dead') rttTxt='timeout';
+      else if(st==='pinging') rttTxt='&#8943;';
+      html+='<div class="pbox'+(st?' '+st:'')+'" id="pb'+idx+'" onclick="pingOne('+idx+')">'+
+        '<div class="pcircle"></div>'+
+        '<div class="pn">'+esc(d.name)+'</div>'+
+        '<div class="pip">'+esc(d.ip)+'</div>'+
+        '<div class="prtt" id="prtt'+idx+'">'+rttTxt+'</div>'+
+      '</div>';
+    }
+    html+='<div class="cf"></div></div></div>';
+  }
+  list.innerHTML=html;
+}
+
+/* ── LAYOUT ── */
+var _logH=140;
+function resizeLayout(){
+  var H=document.documentElement.clientHeight||document.body.clientHeight;
+  var hdr=document.getElementById('hdr');   var hdrH=hdr?hdr.offsetHeight:34;
+  var sbar=document.getElementById('sbar'); var sbarH=sbar?sbar.offsetHeight:38;
+  var cbar=document.getElementById('ctrlbar'); var cbarH=cbar?cbar.offsetHeight:38;
+  var rsz=document.getElementById('row-rsz'); var rszH=rsz?rsz.offsetHeight:4;
+  var lhdr=document.getElementById('loghdr'); var lhdrH=lhdr?lhdr.offsetHeight:24;
+
+  // Shrink log to _logH, then set devarea
+  var logEl=document.getElementById('log');
+  if(logEl) logEl.style.height=(_logH-lhdrH-4)+'px';
+
+  var devH=H-hdrH-sbarH-cbarH-rszH-_logH;
+  if(devH<100) devH=100;
+  var dev=document.getElementById('devarea');
+  if(dev) dev.style.height=devH+'px';
+}
+window.onresize=resizeLayout;
+
+/* ── ROW RESIZE ── */
+var _rRsz=false,_rY=0;
+function startRowResize(e){
+  e=e||window.event; _rRsz=true; _rY=e.clientY;
+  document.getElementById('row-rsz').className='active';
+  document.onmousemove=doRowResize; document.onmouseup=stopRowResize;
+  e.returnValue=false;
+}
+function doRowResize(e){
+  if(!_rRsz) return; e=e||window.event;
+  _logH=_logH-(e.clientY-_rY); _rY=e.clientY;
+  if(_logH<60) _logH=60; if(_logH>500) _logH=500;
+  resizeLayout();
+}
+function stopRowResize(){
+  _rRsz=false;
+  var r=document.getElementById('row-rsz'); if(r) r.className='';
+  document.onmousemove=null; document.onmouseup=null;
+}
+
+window.onload=function(){
+  resizeLayout();
+  renderDevices();
+};
+</script>
+</body>
+</html>`;
+
+  dl(URL.createObjectURL(new Blob([hta],{type:'text/html;charset=utf-8'})), 'network-ping.hta');
+  log('Экспортирован network-ping.hta ('+devs.length+' устройств)');
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAC NETWORK PATCH .command
+// ═══════════════════════════════════════════════════════════
+function exportNetPatchMac(){
+  closeNetExportMenu();
+  const projectName = (document.title||'Show Signal Flow').replace(/\s*—.*$/,'').trim();
+  const exportDate  = new Date().toLocaleString('ru-RU');
+
+  const devs = nodes
+    .filter(n => n.ip || n.gw)
+    .map(n => {
+      const z = zones.find(z => nodeInZone(n, z));
+      return {
+        name: n.title || n.id,
+        zone: z ? (z.title||z.label||'') : '',
+        ip:   n.ip   || '',
+        mask: n.mask || '255.255.255.0',
+        gw:   n.gw   || ''
+      };
+    });
+
+  if (!devs.length) {
+    alert('Нет устройств с сетевыми настройками.');
+    return;
+  }
+
+  // Build bash arrays
+  const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\$/g,'\\$');
+  const namesArr = devs.map(d=>`"${esc(d.name)}"`).join(' ');
+  const zonesArr = devs.map(d=>`"${esc(d.zone)}"`).join(' ');
+  const ipsArr   = devs.map(d=>`"${esc(d.ip)}"`).join(' ');
+  const masksArr = devs.map(d=>`"${esc(d.mask||'255.255.255.0')}"`).join(' ');
+  const gwsArr   = devs.map(d=>`"${esc(d.gw)}"`).join(' ');
+
+  const bash = `#!/bin/bash
+# Network Patch — ${projectName}
+# Сгенерировано Show Signal Flow · ${exportDate}
+# Запуск: chmod +x network-patch.command && ./network-patch.command
+
+R='\\033[0;31m'; G='\\033[0;32m'; Y='\\033[1;33m'
+C='\\033[0;36m'; B='\\033[1m'; N='\\033[0m'
+
+DEVNAMES=(${namesArr})
+DEVZONES=(${zonesArr})
+DEVIPS=(${ipsArr})
+DEVMASKS=(${masksArr})
+DEVGWS=(${gwsArr})
+
+echo ""
+echo -e "\${C}\${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\${N}"
+echo -e "\${C}\${B}  🔧 Network Patch — ${projectName}\${N}"
+echo -e "\${C}  \${N}${exportDate}"
+echo -e "\${C}\${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\${N}"
+echo ""
+
+# Требуются права sudo для изменения IP
+if [ "\\$EUID" -ne 0 ]; then
+  echo -e "\${Y}⚠  Для изменения IP требуются права администратора\${N}"
+  echo -e "   Перезапуск с sudo..."
+  echo ""
+  exec sudo bash "\\$0" "\\$@"
+fi
+
+# Список сетевых интерфейсов
+SERVICES=()
+while IFS= read -r line; do
+  [[ "\\$line" == "An asterisk"* ]] && continue
+  [[ -z "\\$line" ]] && continue
+  SERVICES+=("\\$line")
+done < <(networksetup -listallnetworkservices 2>/dev/null)
+
+echo -e "\${B}Сетевые интерфейсы:\${N}"
+for i in "\${!SERVICES[@]}"; do
+  CUR_IP=\$(networksetup -getinfo "\${SERVICES[\\$i]}" 2>/dev/null | awk -F': ' '/^IP address:/{print \\$2}')
+  echo -e "  \$((i+1)). \${SERVICES[\\$i]}\${CUR_IP:+  \${C}→ \\$CUR_IP\${N}}"
+done
+echo ""
+read -rp "Выберите номер интерфейса: " IFACE_NUM
+IFACE_NUM=\\$((IFACE_NUM-1))
+ADAPTER="\${SERVICES[\\$IFACE_NUM]}"
+if [ -z "\\$ADAPTER" ]; then echo -e "\${R}Неверный выбор\${N}"; exit 1; fi
+echo -e "Адаптер: \${C}\\$ADAPTER\${N}"
+echo ""
+
+# Показ устройств
+echo -e "\${B}Устройства (всего: \${#DEVNAMES[@]}):\${N}"
+LAST_ZONE=""
+for i in "\${!DEVNAMES[@]}"; do
+  Z="\${DEVZONES[\\$i]}"
+  if [ "\\$Z" != "\\$LAST_ZONE" ]; then
+    LAST_ZONE="\\$Z"
+    echo -e "  \${Y}■ \${Z:-Без зоны}\${N}"
+  fi
+  echo -e "    \$((i+1)). \${B}\${DEVNAMES[\\$i]}\${N}  \${C}\${DEVIPS[\\$i]}\${N}\${DEVMASKS[\\$i]:+/\${DEVMASKS[\\$i]}}\${DEVGWS[\\$i]:+  gw \${DEVGWS[\\$i]}}"
+done
+
+echo ""
+echo -e "  \${Y}a\${N} — Применить все"
+echo -e "  \${Y}q\${N} — Выход"
+echo ""
+read -rp "Номер устройства или команда: " CHOICE
+echo ""
+
+apply_dev() {
+  local idx=\\$1
+  local NAME="\${DEVNAMES[\\$idx]}"
+  local IP="\${DEVIPS[\\$idx]}"
+  local MASK="\${DEVMASKS[\\$idx]:-255.255.255.0}"
+  local GW="\${DEVGWS[\\$idx]}"
+  [ -z "\\$IP" ] && { echo -e "  \${R}✗ \${NAME}: нет IP\${N}"; return; }
+  echo -ne "  ▶ \${NAME} (\${IP})... "
+  if [ -n "\\$GW" ]; then
+    networksetup -setmanual "\\$ADAPTER" "\\$IP" "\\$MASK" "\\$GW" 2>&1 >/dev/null
+  else
+    networksetup -setmanual "\\$ADAPTER" "\\$IP" "\\$MASK" 2>&1 >/dev/null
+  fi
+  if [ \\$? -eq 0 ]; then
+    echo -e "\${G}✓ OK\${N}"
+  else
+    echo -e "\${R}✗ Ошибка\${N}"
+  fi
+}
+
+if [ "\\$CHOICE" = "a" ]; then
+  echo -e "\${Y}Применение всех устройств...\${N}"
+  for i in "\${!DEVNAMES[@]}"; do apply_dev \\$i; done
+  echo ""
+  echo -e "\${G}✓ Готово!\${N}"
+elif [[ "\\$CHOICE" =~ ^[0-9]+\\$ ]] && [ "\\$CHOICE" -ge 1 ] && [ "\\$CHOICE" -le "\${#DEVNAMES[@]}" ]; then
+  apply_dev \\$((CHOICE-1))
+  echo -e "\${G}✓ Готово!\${N}"
+elif [ "\\$CHOICE" = "q" ]; then
+  exit 0
+else
+  echo -e "\${R}Неверный ввод\${N}"
+fi
+
+echo ""
+# Показать итоговый IP
+FINAL_IP=\$(networksetup -getinfo "\\$ADAPTER" 2>/dev/null | awk -F': ' '/^IP address:/{print \\$2}')
+echo -e "IP адаптера сейчас: \${C}\\$FINAL_IP\${N}"
+echo ""
+read -rp "Нажмите Enter для выхода..."
+`;
+
+  dl(URL.createObjectURL(new Blob([bash],{type:'text/x-sh;charset=utf-8'})), 'network-patch.command');
+  log('Экспортирован network-patch.command (macOS, '+devs.length+' устройств)');
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAC PING MAP .command
+// ═══════════════════════════════════════════════════════════
+function exportNetPingMac(){
+  closeNetExportMenu();
+  const projectName = (document.title||'Show Signal Flow').replace(/\s*—.*$/,'').trim();
+  const exportDate  = new Date().toLocaleString('ru-RU');
+
+  const devs = nodes
+    .filter(n => n.ip)
+    .map(n => {
+      const z = zones.find(z => nodeInZone(n, z));
+      return {
+        name: n.title || n.id,
+        zone: z ? (z.title||z.label||'') : '',
+        ip:   n.ip || ''
+      };
+    });
+
+  if (!devs.length) {
+    alert('Нет устройств с IP-адресами.');
+    return;
+  }
+
+  const esc = s => (s||'').replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/`/g,'\\`').replace(/\$/g,'\\$');
+  const namesArr = devs.map(d=>`"${esc(d.name)}"`).join(' ');
+  const zonesArr = devs.map(d=>`"${esc(d.zone)}"`).join(' ');
+  const ipsArr   = devs.map(d=>`"${esc(d.ip)}"`).join(' ');
+
+  const bash = `#!/bin/bash
+# Ping Map — ${projectName}
+# Сгенерировано Show Signal Flow · ${exportDate}
+# Запуск: chmod +x network-ping.command && ./network-ping.command
+
+R='\\033[0;31m'; G='\\033[0;32m'; Y='\\033[1;33m'
+C='\\033[0;36m'; B='\\033[1m'; DIM='\\033[2m'; N='\\033[0m'
+GREEN_DOT="\\$(printf '\\033[0;32m●\\033[0m')"
+RED_DOT="\\$(printf '\\033[0;31m●\\033[0m')"
+GREY_DOT="\\$(printf '\\033[2m○\\033[0m')"
+
+DEVNAMES=(${namesArr})
+DEVZONES=(${zonesArr})
+DEVIPS=(${ipsArr})
+TOTAL="\${#DEVNAMES[@]}"
+
+CNT_OK=0; CNT_ERR=0
+declare -a RTTS
+for i in "\${!DEVNAMES[@]}"; do RTTS[\\$i]=""; done
+
+echo ""
+echo -e "\${C}\${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\${N}"
+echo -e "\${C}\${B}  📡 Ping Map — ${projectName}\${N}"
+echo -e "\${C}  \${DIM}${exportDate}  ·  Устройств: \${TOTAL}\${N}"
+echo -e "\${C}\${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\${N}"
+echo ""
+
+ping_one() {
+  local ip="\\$1"
+  # macOS ping: -c count, -W timeout ms (macOS uses ms unlike Linux)
+  local raw
+  raw=\$(ping -c 2 -W 500 "\\$ip" 2>/dev/null | grep -E "round-trip|rtt" | grep -oE "[0-9]+\\.[0-9]+/[0-9]+\\.[0-9]+" | awk -F'/' '{printf "%.0f", \\$2}')
+  echo "\\$raw"
+}
+
+LAST_ZONE=""
+for i in "\${!DEVNAMES[@]}"; do
+  Z="\${DEVZONES[\\$i]}"
+  IP="\${DEVIPS[\\$i]}"
+  NAME="\${DEVNAMES[\\$i]}"
+  [ -z "\\$IP" ] && continue
+
+  if [ "\\$Z" != "\\$LAST_ZONE" ]; then
+    [ -n "\\$LAST_ZONE" ] && echo ""
+    LAST_ZONE="\\$Z"
+    echo -e "  \${Y}■ \${Z:-Без зоны}\${N}"
+  fi
+
+  printf "  \${GREY_DOT} \${B}%s\${N} \${DIM}%s\${N}... " "\\$NAME" "\\$IP"
+
+  RTT=\$(ping_one "\\$IP")
+
+  if [ -n "\\$RTT" ] && [ "\\$RTT" -gt 0 ] 2>/dev/null; then
+    printf "\\r  \${GREEN_DOT} \${B}%-30s\${N} \${C}%-18s\${N} \${G}%s ms\${N}\\n" "\\$NAME" "\\$IP" "\\$RTT"
+    RTTS[\\$i]="\\$RTT"
+    CNT_OK=\\$((CNT_OK+1))
+  else
+    printf "\\r  \${RED_DOT}  \${B}%-30s\${N} \${C}%-18s\${N} \${R}timeout\${N}\\n" "\\$NAME" "\\$IP"
+    CNT_ERR=\\$((CNT_ERR+1))
+  fi
+done
+
+echo ""
+echo -e "\${C}\${B}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\${N}"
+
+# Средний RTT
+SUM=0; CNT_RTT=0
+for r in "\${RTTS[@]}"; do
+  [ -n "\\$r" ] && [ "\\$r" -gt 0 ] 2>/dev/null && { SUM=\\$((SUM+r)); CNT_RTT=\\$((CNT_RTT+1)); }
+done
+if [ "\\$CNT_RTT" -gt 0 ]; then
+  AVG=\\$((SUM/CNT_RTT))
+  echo -e "  Онлайн: \${G}\\$CNT_OK\${N}  Нет ответа: \${R}\\$CNT_ERR\${N}  Avg RTT: \${C}\\${AVG} ms\${N}  (\$((CNT_OK*100/TOTAL))%)"
+else
+  echo -e "  Онлайн: \${G}\\$CNT_OK\${N}  Нет ответа: \${R}\\$CNT_ERR\${N}"
+fi
+echo ""
+
+read -rp "Нажмите Enter для выхода..."
+`;
+
+  dl(URL.createObjectURL(new Blob([bash],{type:'text/x-sh;charset=utf-8'})), 'network-ping.command');
+  log('Экспортирован network-ping.command (macOS, '+devs.length+' устройств)');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4089,7 +5125,9 @@ function showSignalTable(){
   nodes.forEach(n=>{
     const dtLbl = getDevtypeLabel(n.deviceType) || '—';
     const modelStr = n.novaModel ? ' '+n.novaModel
+      : n.lightConsoleModel ? ' '+n.lightConsoleModel
       : n.audioConsole ? ' '+n.audioConsole
+      : n.audioInterface ? ' '+n.audioInterface
       : n.broadcastType ? ' · '+n.broadcastType
       : n.videoSoftware ? ' · '+n.videoSoftware
       : n.captureDevice ? ' · '+n.captureDevice : '';
@@ -4148,7 +5186,7 @@ function exportCSV(){
   csv+='\n"Устройство";"Подзаголовок";"Тип";"Модель";"TC"\n';
   nodes.forEach(n=>{
     const dtLbl=getDevtypeLabel(n.deviceType)||'';
-    const model=n.novaModel||n.audioConsole||n.videoSoftware||n.audioInterface||n.tcSource||n.captureDevice||'';
+    const model=n.novaModel||n.lightConsoleModel||n.audioConsole||n.audioInterface||n.videoSoftware||n.tcSource||n.captureDevice||'';
     const tcStr=n.tcOut?'TC out':n.tc?'TC in':'';
     const q=s=>'"'+(s||'').replace(/"/g,'""')+'"';
     csv+=`${q(n.title)};${q([n.sub1,n.sub2].filter(Boolean).join(', '))};${q(dtLbl)};${q(model)};${q(tcStr)}\n`;
@@ -4191,7 +5229,11 @@ function doSearch(){
   searchMatches=nodes.filter(n=>
     (n.title||'').toLowerCase().includes(q)||
     (n.sub1||'').toLowerCase().includes(q)||
-    (n.sub2||'').toLowerCase().includes(q)
+    (n.sub2||'').toLowerCase().includes(q)||
+    (n.lightConsoleModel||'').toLowerCase().includes(q)||
+    (n.audioConsole||'').toLowerCase().includes(q)||
+    (n.novaModel||'').toLowerCase().includes(q)||
+    getDevtypeLabel(n.deviceType).toLowerCase().includes(q) // U1: поиск по модели и типу
   );
   searchIdx=searchMatches.length?0:-1;
   applySearchHL();
@@ -4343,7 +5385,18 @@ function toggleMoreMenu(){
 }
 function hideMoreMenu(){ document.getElementById('more-menu').style.display='none'; }
 
+// P3: rAF-throttle — миникарта перерисовывается не чаще 1 раза в кадр
+let _mmPending=false;
 function rMinimap(){
+  if(!mmVisible) return;
+  if(_mmPending) return;
+  _mmPending=true;
+  requestAnimationFrame(()=>{
+    _mmPending=false;
+    _rMinimapImmediate();
+  });
+}
+function _rMinimapImmediate(){
   if(!mmVisible) return;
   const mmsvg=document.getElementById('mm-svg');
   if(!mmsvg) return;
@@ -4447,7 +5500,9 @@ function hideWelcome(){ document.getElementById('welcome').style.display='none';
 
 function newProject(){
   hideWelcome();
+  _closeEditors();
   nodes=[]; edges=[]; tcBuses=[{...DTC_BUS}]; notes=[]; zones=[]; customDeviceTypes=[];
+  _ngCache.clear(); _ntCache.clear(); _zcCache.clear(); _egCache.clear();
   rebuildDevTypeSelects();
   currentFilePath=null;
   undoStack.length=0; redoStack.length=0;
@@ -4461,6 +5516,8 @@ function newProject(){
 // ═══════════════════════════════════════════════════════════
 function _applyTemplate(tpl){
   hideWelcome();
+  _closeEditors();
+  _ngCache.clear(); _ntCache.clear(); _zcCache.clear(); _egCache.clear();
   nodes=tpl.nodes; edges=tpl.edges;
   _restoreTCBuses(tpl);
   notes=tpl.notes||[]; zones=tpl.zones||[];
@@ -4471,7 +5528,7 @@ function _applyTemplate(tpl){
 }
 
 function loadTemplateStandard(){
-  const id=()=>'n'+Math.floor(Math.random()*9e6+1e6);
+  const id=uid;
   const ms=id(),td=id(),lc=id(),nb=id(),pr=id(),sc=id();
   _applyTemplate({
     nodes:[
@@ -4498,7 +5555,7 @@ function loadTemplateStandard(){
 }
 
 function loadTemplateVideo(){
-  const id=()=>'n'+Math.floor(Math.random()*9e6+1e6);
+  const id=uid;
   const ms=id(),sw=id(),pr=id(),sc=id(),prj=id();
   _applyTemplate({
     nodes:[
@@ -4522,7 +5579,7 @@ function loadTemplateVideo(){
 }
 
 function loadTemplateAudio(){
-  const id=()=>'n'+Math.floor(Math.random()*9e6+1e6);
+  const id=uid;
   const foh=id(),mon=id(),ai=id(),pa=id(),nb=id();
   _applyTemplate({
     nodes:[
