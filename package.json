@@ -6,7 +6,10 @@
   "author": "Concept Store",
   "license": "MIT",
   "scripts": {
+    "inject-version": "node scripts/inject-version.js",
+    "prestart": "node scripts/inject-version.js",
     "start": "electron .",
+    "prebuild": "node scripts/inject-version.js",
     "build": "electron-builder --win portable",
     "build-installer": "electron-builder --win nsis",
     "build-mac": "electron-builder --mac dmg",
@@ -50,7 +53,7 @@
       "language": "1049"
     },
     "portable": {
-      "artifactName": "ShowSignalFlow-v3.6.4-portable.exe"
+      "artifactName": "ShowSignalFlow-v${version}-portable.exe"
     },
     "mac": {
       "target": [
@@ -58,7 +61,7 @@
       ],
       "icon": "icon.png",
       "category": "public.app-category.utilities",
-      "artifactName": "ShowSignalFlow-v3.6.4-mac-${arch}.zip"
+      "artifactName": "ShowSignalFlow-v${version}-mac-${arch}.zip"
     },
     "linux": {
       "target": [
@@ -66,7 +69,7 @@
       ],
       "icon": "icon.png",
       "category": "Utility",
-      "artifactName": "ShowSignalFlow-v3.6.4-linux.AppImage"
+      "artifactName": "ShowSignalFlow-v${version}-linux.AppImage"
     }
   }
 }

@@ -19,6 +19,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Inject version into app.js
+        run: node scripts/inject-version.js
+
       - name: Build Windows portable
         run: npx electron-builder --win portable --publish never
 
@@ -38,6 +41,9 @@ jobs:
           node-version: 20
 
       - run: npm ci
+
+      - name: Inject version into app.js
+        run: node scripts/inject-version.js
 
       - name: Build macOS x64
         run: npx electron-builder --mac zip --x64 --publish never
@@ -87,5 +93,7 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+          tag_name: ${{ github.ref_name }}
+          name: "Show Signal Flow ${{ github.ref_name }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
