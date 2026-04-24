@@ -18,7 +18,7 @@ function startDrag(onMove, onEnd){
 }
 const APP_VERSION = (window.electronAPI && window.electronAPI.appVersion)
   ? 'v' + window.electronAPI.appVersion
-  : 'v?';
+  : 'v3.6.4';
 
 // Проставляем версию в DOM сразу при загрузке скрипта
 (function applyVersion(){
