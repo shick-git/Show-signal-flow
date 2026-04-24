@@ -843,6 +843,121 @@ body.dark-theme #qed .qed-props{background:#333;color:#ccc;}
         <label style="margin-top:5px;">Количество выходов</label>
         <input id="ne-outputs" type="number" min="1" max="64" placeholder="напр. 4"/>
       </div>
+      <div id="ne-light-row" style="display:none;margin-top:4px;">
+        <label>Модель светового пульта</label>
+        <select id="ne-light" onchange="onLightConsoleChange('ne')">
+          <option value="">— выбрать модель —</option>
+          <optgroup label="⭐ Топ райдер">
+            <option value="grandMA3 Full-Size">grandMA3 Full-Size</option>
+            <option value="grandMA3 Light">grandMA3 Light</option>
+            <option value="grandMA2 Full-Size">grandMA2 Full-Size</option>
+            <option value="ETC Eos Ti">ETC Eos Ti</option>
+            <option value="ETC Ion Xe 20">ETC Ion Xe 20</option>
+            <option value="Avolites Sapphire Touch">Avolites Sapphire Touch</option>
+            <option value="ChamSys MQ500M">ChamSys MQ500M</option>
+            <option value="Hog 4 Full Boar">Hog 4 Full Boar</option>
+          </optgroup>
+          <optgroup label="MA Lighting — grandMA3">
+            <option value="grandMA3 Full-Size">grandMA3 Full-Size</option>
+            <option value="grandMA3 Light">grandMA3 Light</option>
+            <option value="grandMA3 compact XT">grandMA3 compact XT</option>
+            <option value="grandMA3 compact">grandMA3 compact</option>
+            <option value="grandMA3 onPC">grandMA3 onPC (ПО)</option>
+          </optgroup>
+          <optgroup label="MA Lighting — grandMA2">
+            <option value="grandMA2 Full-Size">grandMA2 Full-Size</option>
+            <option value="grandMA2 light">grandMA2 light</option>
+            <option value="grandMA2 ultra-light">grandMA2 ultra-light</option>
+            <option value="grandMA2 onPC">grandMA2 onPC (ПО)</option>
+          </optgroup>
+          <optgroup label="ETC — Eos Family">
+            <option value="ETC Eos Ti">Eos Ti</option>
+            <option value="ETC Eos">Eos</option>
+            <option value="ETC Ion Xe 20">Ion Xe 20</option>
+            <option value="ETC Ion Xe">Ion Xe</option>
+            <option value="ETC Element 2">Element 2</option>
+            <option value="ETC Element">Element</option>
+            <option value="ETC ColorSource 40">ColorSource 40</option>
+            <option value="ETC ColorSource 20">ColorSource 20</option>
+            <option value="ETC Nomad">Nomad (ПО)</option>
+          </optgroup>
+          <optgroup label="Avolites">
+            <option value="Avolites Sapphire Touch">Sapphire Touch</option>
+            <option value="Avolites Diamond 9">Diamond 9</option>
+            <option value="Avolites Diamond 7">Diamond 7</option>
+            <option value="Avolites Tiger Touch II">Tiger Touch II</option>
+            <option value="Avolites Quartz">Quartz</option>
+            <option value="Avolites Arena">Arena</option>
+            <option value="Avolites Pearl Expert">Pearl Expert</option>
+            <option value="Avolites Titan Mobile">Titan Mobile</option>
+            <option value="Avolites Titan PC">Titan PC Suite (ПО)</option>
+          </optgroup>
+          <optgroup label="ChamSys">
+            <option value="ChamSys MQ500M">MQ500M Stadium</option>
+            <option value="ChamSys MQ500">MQ500</option>
+            <option value="ChamSys MQ250M">MQ250M</option>
+            <option value="ChamSys MQ80">MQ80</option>
+            <option value="ChamSys MQ70">MQ70</option>
+            <option value="ChamSys MQ50">MQ50</option>
+            <option value="ChamSys MagicQ PC">MagicQ PC (ПО)</option>
+          </optgroup>
+          <optgroup label="High End Systems — Hog">
+            <option value="Hog 4 Full Boar">Full Boar 4</option>
+            <option value="Hog 4">Hog 4</option>
+            <option value="Road Hog 4">Road Hog 4</option>
+            <option value="HedgeHog 4X">HedgeHog 4X</option>
+            <option value="HedgeHog 4">HedgeHog 4</option>
+            <option value="Hog 4PC">Hog 4PC (ПО)</option>
+          </optgroup>
+          <optgroup label="ONYX / Obsidian">
+            <option value="ONYX NX4">NX4</option>
+            <option value="ONYX NX2">NX2</option>
+            <option value="ONYX NX1">NX1</option>
+            <option value="ONYX NX Wing">NX Wing</option>
+            <option value="Martin M6">Martin M6</option>
+            <option value="Martin M2Go">Martin M2Go</option>
+            <option value="ONYX PC">ONYX PC (ПО)</option>
+          </optgroup>
+          <optgroup label="Zero 88">
+            <option value="Zero 88 Orb XF">Orb XF</option>
+            <option value="Zero 88 Orb">Orb</option>
+            <option value="Zero 88 FLX S48">FLX S48</option>
+            <option value="Zero 88 FLX S24">FLX S24</option>
+            <option value="Zero 88 FLX">FLX</option>
+            <option value="Zero 88 ZerOS Server">ZerOS Server (ПО)</option>
+          </optgroup>
+          <optgroup label="Strand Lighting">
+            <option value="Strand NEO">NEO</option>
+            <option value="Strand 520i">520i</option>
+            <option value="Strand 300">300 Series</option>
+          </optgroup>
+          <optgroup label="Jands">
+            <option value="Jands Vista 3">Vista 3</option>
+            <option value="Jands Vista L5">Vista L5</option>
+            <option value="Jands Vista M1">Vista M1</option>
+          </optgroup>
+          <optgroup label="LSC Lighting">
+            <option value="LSC Clarity LX">Clarity LX</option>
+            <option value="LSC Clarity LXi">Clarity LXi</option>
+            <option value="LSC Mantra">Mantra</option>
+          </optgroup>
+          <optgroup label="Compulite">
+            <option value="Compulite Spark 4D">Spark 4D</option>
+            <option value="Compulite Vector Pro">Vector Pro</option>
+          </optgroup>
+          <optgroup label="Prism / Capture">
+            <option value="Prism Zero">Prism Zero</option>
+            <option value="Prism Player">Prism Player</option>
+          </optgroup>
+          <optgroup label="Другие">
+            <option value="Leprecon ULD-360">Leprecon ULD-360</option>
+            <option value="Elation Obsidian">Elation Obsidian</option>
+            <option value="Sunlite Suite3">Sunlite Suite3</option>
+            <option value="LightFactory">LightFactory (ПО)</option>
+            <option value="Madrix">Madrix (LED ПО)</option>
+          </optgroup>
+        </select>
+      </div>
       <div id="ne-audio-row" style="display:none;margin-top:4px;">
         <label>Модель пульта</label>
         <select id="ne-audio" onchange="onAudioConsoleChange('ne')">
